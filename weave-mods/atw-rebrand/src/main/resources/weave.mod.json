@@ -1,0 +1,10 @@
+{
+  "name": "ATW Rebrand",
+  "modId": "atw-rebrand",
+  "entrypoints": [
+    "com.atw.rebrand.ATWRebrand"
+  ],
+  "hooks": [
+    "com.atw.rebrand.hook.MenuLogoOverlayHook"
+  ]
+}

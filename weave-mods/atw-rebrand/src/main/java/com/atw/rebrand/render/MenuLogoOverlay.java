@@ -23,20 +23,19 @@ public class MenuLogoOverlay {
 
         ScaledResolution resolution = new ScaledResolution(mc);
         int centerX = resolution.getScaledWidth() / 2;
-        int y = Math.max(18, resolution.getScaledHeight() / 5 - 18);
-        int width = 170;
-        int height = 30;
+        int y = Math.max(34, resolution.getScaledHeight() / 2 - 32);
+        int width = 150;
+        int height = 22;
         int left = centerX - width / 2;
-        int top = y - 8;
+        int top = y;
         int right = centerX + width / 2;
         int bottom = top + height;
 
-        Gui.drawRect(left, top, right, bottom, 0xDD111216);
-        Gui.drawRect(left, bottom - 2, right, bottom, 0xFF32D9C8);
+        Gui.drawRect(left, top, right, bottom, 0xEE101115);
 
         String text = ATWRebrand.NAME;
         int textX = centerX - fontRenderer.getStringWidth(text) / 2;
-        int textY = top + 10;
+        int textY = top + 7;
         fontRenderer.drawStringWithShadow(text, textX, textY, 0xFFFFFF);
 
         if (!loggedRender) {
@@ -47,10 +46,10 @@ public class MenuLogoOverlay {
 
     private static boolean isLunarMenuScreen(GuiScreen screen) {
         String className = screen.getClass().getName();
-        return className.startsWith("com.moonsworth.lunar")
+        return "net.minecraft.client.gui.GuiMainMenu".equals(className)
+                || className.startsWith("com.moonsworth.lunar")
                 && (className.toLowerCase().contains("menu")
                 || className.toLowerCase().contains("main")
                 || className.toLowerCase().contains("home"));
     }
 }
-

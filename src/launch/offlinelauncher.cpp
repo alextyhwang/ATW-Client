@@ -786,6 +786,7 @@ void OfflineLauncher::scheduleMinecraftWindowIcon(qint64 pid) {
                 if (windowPid != context->pid || !IsWindowVisible(hwnd))
                     return TRUE;
 
+                SetWindowTextW(hwnd, L"ATW Client 1.8.9");
                 SendMessageW(hwnd, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(context->largeIcon));
                 SendMessageW(hwnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(context->smallIcon));
                 SetClassLongPtrW(hwnd, GCLP_HICON, reinterpret_cast<LONG_PTR>(context->largeIcon));
