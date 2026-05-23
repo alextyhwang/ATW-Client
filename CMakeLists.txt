@@ -221,6 +221,9 @@ set(BUNDLED_WEAVE_MODS_DEST ${CMAKE_BINARY_DIR}/weave-mods)
 set(ATW_LEVELHEAD_PROJECT_DIR ${CMAKE_CURRENT_LIST_DIR}/weave-mods/atw-levelhead)
 set(ATW_LEVELHEAD_JAR ${ATW_LEVELHEAD_PROJECT_DIR}/build/libs/ATWLevelHead-0.1.0.jar)
 set(ATW_LEVELHEAD_RUNTIME_JAR ${BUNDLED_WEAVE_MODS_SOURCE}/ATWLevelHead-0.1.0.jar)
+set(ATW_REBRAND_PROJECT_DIR ${CMAKE_CURRENT_LIST_DIR}/weave-mods/atw-rebrand)
+set(ATW_REBRAND_JAR ${ATW_REBRAND_PROJECT_DIR}/build/libs/ATWRebrand-0.1.0.jar)
+set(ATW_REBRAND_RUNTIME_JAR ${BUNDLED_WEAVE_MODS_SOURCE}/ATWRebrand-0.1.0.jar)
 
 add_custom_target(BuildATWLevelHead
     COMMAND cmd /c gradlew.bat build
@@ -231,6 +234,15 @@ add_custom_target(BuildATWLevelHead
     VERBATIM
 )
 
+add_custom_target(BuildATWRebrand
+    COMMAND cmd /c gradlew.bat build
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${BUNDLED_WEAVE_MODS_SOURCE}"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${ATW_REBRAND_JAR}" "${ATW_REBRAND_RUNTIME_JAR}"
+    WORKING_DIRECTORY "${ATW_REBRAND_PROJECT_DIR}"
+    COMMENT "Building bundled ATW Rebrand Weave mod"
+    VERBATIM
+)
+
 add_custom_target(CopyBundledWeaveMods ALL
     COMMAND ${CMAKE_COMMAND} -E make_directory "${BUNDLED_WEAVE_MODS_DEST}"
     COMMAND ${CMAKE_COMMAND} -E copy_directory "${BUNDLED_WEAVE_MODS_SOURCE}" "${BUNDLED_WEAVE_MODS_DEST}"
@@ -238,6 +250,7 @@ add_custom_target(CopyBundledWeaveMods ALL
     VERBATIM
 )
 add_dependencies(CopyBundledWeaveMods BuildATWLevelHead)
+add_dependencies(CopyBundledWeaveMods BuildATWRebrand)
 
 foreach(ATW_TARGET IN LISTS ATW_TARGETS)
     add_dependencies(${ATW_TARGET} CopyBundledWeaveMods)
