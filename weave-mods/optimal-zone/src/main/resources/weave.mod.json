@@ -1,0 +1,8 @@
+{
+  "name": "OptimalZone",
+  "modId": "optimal-zone",
+  "entrypoints": [
+    "com.atw.optimalzone.OptimalZoneMod"
+  ],
+  "hooks": []
+}
