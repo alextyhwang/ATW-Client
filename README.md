@@ -20,9 +20,9 @@ tokens, logs, private runtime settings, or API keys.
 - Weave Loader support and mod management.
 - Java agent and helper program support.
 - Java 17/GraalVM-oriented optimization profile support.
-- Bundled ATW LevelHead Weave mod source under `weave-mods/atw-levelhead`.
-- Bundled OptimalZone Weave mod source under `weave-mods/optimal-zone`.
-- Runtime Weave mod jars under `weave-mods/runtime`, copied beside the executables as `weave-mods`.
+- Optional local Weave mod workspaces under ignored `weave-mods/`.
+- Runtime Weave mod jars can be staged locally under ignored `weave-mods/runtime`
+  and copied beside the executables as `weave-mods`.
 - Bundled GraalVM Java 17 runtime under `runtime/java`, copied beside the executables as `runtime/java`.
 - Local Lunar Client mirror under ignored `data/lunarclient`, copied beside the
   executables as `data/lunarclient` for the canonical package-mode exes.
@@ -33,9 +33,8 @@ tokens, logs, private runtime settings, or API keys.
 - `res/`: launcher icons, tab art, fonts, and Qt resources.
 - `java/agents`: Java agents copied beside built launcher binaries.
 - `java/libs`: Java libraries copied beside built launcher binaries.
-- `weave-mods/atw-levelhead`: standalone Weave v0.2.6 LevelHead mod project.
-- `weave-mods/optimal-zone`: standalone Weave v0.2.6 optimal hitbox-zone overlay mod project.
-- `weave-mods/runtime`: bundled runtime Weave mod jars used by the launcher.
+- `weave-mods/`: ignored local workspace for standalone Weave mod repos and
+  runtime jars. The mods are versioned in their own repositories.
 - `runtime/java`: local GraalVM Java runtime used by `atw-config.exe` and `atw-launch.exe`.
 - `data/lunarclient`: ignored local mirror of `%USERPROFILE%\.lunarclient`,
   including account/session data for local testing only.

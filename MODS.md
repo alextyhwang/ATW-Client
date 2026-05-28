@@ -1,12 +1,14 @@
 # Weave Mod Notes
 
-This repo includes an experimental Weave mod project at:
+This client repo treats `weave-mods/` as an ignored local workspace. Individual
+mods are versioned in their own repositories, but local working copies may live
+at:
 
 ```text
 weave-mods/atw-levelhead
 ```
 
-It also includes a standalone OptimalZone overlay mod project at:
+ATW's Overlay may live locally at:
 
 ```text
 weave-mods/optimal-zone
@@ -129,7 +131,7 @@ Copy-Item .\build\libs\ATWLevelHead-0.1.0.jar $env:USERPROFILE\.weave\mods\ATWLe
 
 Restart Minecraft after installing. Weave mods are loaded at game startup.
 
-Build OptimalZone from its mod folder:
+Build ATW's Overlay from its mod folder:
 
 ```powershell
 cd weave-mods\optimal-zone
@@ -139,11 +141,53 @@ cd weave-mods\optimal-zone
 Install for the active ATW package-mode build:
 
 ```powershell
-Copy-Item .\build\libs\OptimalZone-0.1.0.jar ..\..\build\weave-mods\OptimalZone-0.1.0.jar -Force
+Copy-Item .\build\libs\ATWOverlay-0.1.0.jar ..\..\build\weave-mods\ATWOverlay-0.1.0.jar -Force
 ```
 
-OptimalZone toggles with `/toggleoptimalzone` and defaults to enabled on game
-startup.
+ATW's Overlay defaults to enabled on game startup. Use `/atwoverlay status`
+to list feature states, `/atwoverlay toggle` for the master switch, and
+`/atwoverlay optimalzone`, `/atwoverlay projectiles`, `/atwoverlay chams`, or
+`/atwoverlay minimap` for individual features. `/atwoverlay map` and
+`/atwoverlay radar` are minimap aliases. Legacy aliases
+`/toggleoptimalzone`, `/togglechams`, and `/toggleminimap` are preserved for
+hotkeys. `/atwoverlay debugtarget` dumps the entity under the crosshair to chat
+and `latest.log` for NPC-versus-player investigation.
+
+## ATW's Overlay Notes
+
+Agent-facing implementation details are documented in:
+
+```text
+weave-mods/optimal-zone/AGENTS.md
+```
+
+Read that file before changing the overlay renderer. Important current behavior:
+
+- Optimal Zone draws a green camera-facing marker on the closest reachable point
+  of the selected enemy player's hitbox.
+- The marker fills when the crosshair ray is inside it.
+- A local hit-confirm sound plays when a player takes damage shortly after the
+  crosshair was inside the marker.
+- Projectile trajectories are local-only bow and ender pearl overlays. They do
+  not aim, rotate the player, select targets, or send packets.
+- Chams is not a box ESP. It only draws occluded player fragments.
+- Visible players are left to Minecraft's normal renderer.
+- The hidden-player overlay draws only the base player model, not armor,
+  nametags, or render layers.
+- Hidden silhouettes use stencil masking so 3D face overlap does not darken the
+  fill.
+- Hidden silhouettes use the player's scoreboard/team nametag color when
+  available, with a light gray fallback and a slightly darker outline.
+- Minimap renders from `RenderGameOverlayEvent.Post` as a top-right 88 by 88
+  square, shows only loaded players within 25 blocks, rotates heading-up with
+  player yaw, and uses the same team-color resolver as chams.
+- Debug target output includes entity class/id/UUID/name, formatted display
+  name, scoreboard team, `GameProfile`, `NetworkPlayerInfo`, and NBT. Compare
+  real player and NPC dumps before adding minimap NPC filters.
+
+When modifying `OccludedPlayerRenderer`, avoid calling the full living
+`doRender` path. That previously brought armor/layers and nametag render state
+into the overlay pass.
 
 ## Logs To Check
 

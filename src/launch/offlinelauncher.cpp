@@ -766,18 +766,14 @@ void OfflineLauncher::scheduleMinecraftWindowIcon(qint64 pid) {
             };
 
             QString iconPath = FS::combinePaths(qApp->applicationDirPath(), QStringLiteral("minecraft.ico"));
-            if (!QFileInfo::exists(iconPath))
-                return;
-
-            std::wstring nativeIconPath = QDir::toNativeSeparators(iconPath).toStdWString();
+            std::wstring nativeIconPath = QFileInfo::exists(iconPath)
+                ? QDir::toNativeSeparators(iconPath).toStdWString()
+                : std::wstring();
             IconContext context{
                 static_cast<DWORD>(pid),
-                static_cast<HICON>(LoadImageW(nullptr, nativeIconPath.c_str(), IMAGE_ICON, 32, 32, LR_LOADFROMFILE)),
-                static_cast<HICON>(LoadImageW(nullptr, nativeIconPath.c_str(), IMAGE_ICON, 16, 16, LR_LOADFROMFILE))
+                nativeIconPath.empty() ? nullptr : static_cast<HICON>(LoadImageW(nullptr, nativeIconPath.c_str(), IMAGE_ICON, 32, 32, LR_LOADFROMFILE)),
+                nativeIconPath.empty() ? nullptr : static_cast<HICON>(LoadImageW(nullptr, nativeIconPath.c_str(), IMAGE_ICON, 16, 16, LR_LOADFROMFILE))
             };
-
-            if (!context.largeIcon || !context.smallIcon)
-                return;
 
             EnumWindows([](HWND hwnd, LPARAM lParam) -> BOOL {
                 IconContext* context = reinterpret_cast<IconContext*>(lParam);
@@ -786,10 +782,13 @@ void OfflineLauncher::scheduleMinecraftWindowIcon(qint64 pid) {
                 if (windowPid != context->pid || !IsWindowVisible(hwnd))
                     return TRUE;
 
-                SendMessageW(hwnd, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(context->largeIcon));
-                SendMessageW(hwnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(context->smallIcon));
-                SetClassLongPtrW(hwnd, GCLP_HICON, reinterpret_cast<LONG_PTR>(context->largeIcon));
-                SetClassLongPtrW(hwnd, GCLP_HICONSM, reinterpret_cast<LONG_PTR>(context->smallIcon));
+                SetWindowTextW(hwnd, L"ATW Client 1.8.9");
+                if (context->largeIcon && context->smallIcon) {
+                    SendMessageW(hwnd, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(context->largeIcon));
+                    SendMessageW(hwnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(context->smallIcon));
+                    SetClassLongPtrW(hwnd, GCLP_HICON, reinterpret_cast<LONG_PTR>(context->largeIcon));
+                    SetClassLongPtrW(hwnd, GCLP_HICONSM, reinterpret_cast<LONG_PTR>(context->smallIcon));
+                }
                 return FALSE;
             }, reinterpret_cast<LPARAM>(&context));
         });

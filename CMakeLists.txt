@@ -31,6 +31,8 @@ else()
 set(QT_VER Qt6)
 endif()
 
+find_program(JAR_EXECUTABLE jar)
+
 # ---------------------------- Get current version and tag --------------------------------
 set(LCQT_VERSION 0.0.1)
 set(LCQT_VERSION_TAG v0.0.1)
@@ -221,6 +223,9 @@ set(BUNDLED_WEAVE_MODS_DEST ${CMAKE_BINARY_DIR}/weave-mods)
 set(ATW_LEVELHEAD_PROJECT_DIR ${CMAKE_CURRENT_LIST_DIR}/weave-mods/atw-levelhead)
 set(ATW_LEVELHEAD_JAR ${ATW_LEVELHEAD_PROJECT_DIR}/build/libs/ATWLevelHead-0.1.0.jar)
 set(ATW_LEVELHEAD_RUNTIME_JAR ${BUNDLED_WEAVE_MODS_SOURCE}/ATWLevelHead-0.1.0.jar)
+set(ATW_REBRAND_PROJECT_DIR ${CMAKE_CURRENT_LIST_DIR}/weave-mods/atw-rebrand)
+set(ATW_REBRAND_JAR ${ATW_REBRAND_PROJECT_DIR}/build/libs/ATWRebrand-0.1.0.jar)
+set(ATW_REBRAND_RUNTIME_JAR ${BUNDLED_WEAVE_MODS_SOURCE}/ATWRebrand-0.1.0.jar)
 
 add_custom_target(BuildATWLevelHead
     COMMAND cmd /c gradlew.bat build
@@ -231,6 +236,15 @@ add_custom_target(BuildATWLevelHead
     VERBATIM
 )
 
+add_custom_target(BuildATWRebrand
+    COMMAND cmd /c gradlew.bat build
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${BUNDLED_WEAVE_MODS_SOURCE}"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${ATW_REBRAND_JAR}" "${ATW_REBRAND_RUNTIME_JAR}"
+    WORKING_DIRECTORY "${ATW_REBRAND_PROJECT_DIR}"
+    COMMENT "Building bundled ATW Rebrand Weave mod"
+    VERBATIM
+)
+
 add_custom_target(CopyBundledWeaveMods ALL
     COMMAND ${CMAKE_COMMAND} -E make_directory "${BUNDLED_WEAVE_MODS_DEST}"
     COMMAND ${CMAKE_COMMAND} -E copy_directory "${BUNDLED_WEAVE_MODS_SOURCE}" "${BUNDLED_WEAVE_MODS_DEST}"
@@ -238,6 +252,7 @@ add_custom_target(CopyBundledWeaveMods ALL
     VERBATIM
 )
 add_dependencies(CopyBundledWeaveMods BuildATWLevelHead)
+add_dependencies(CopyBundledWeaveMods BuildATWRebrand)
 
 foreach(ATW_TARGET IN LISTS ATW_TARGETS)
     add_dependencies(${ATW_TARGET} CopyBundledWeaveMods)
@@ -263,6 +278,8 @@ endforeach()
 
 set(BUNDLED_LUNAR_DATA_SOURCE ${CMAKE_CURRENT_LIST_DIR}/data/lunarclient)
 set(BUNDLED_LUNAR_DATA_DEST ${CMAKE_BINARY_DIR}/data/lunarclient)
+set(ATW_LUNAR_BRANDING_OVERLAY ${CMAKE_CURRENT_LIST_DIR}/res/lunar-overrides)
+set(ATW_LUNAR_BRANDING_TARGET_JAR ${BUNDLED_LUNAR_DATA_DEST}/offline/multiver/lunar.jar)
 
 if(EXISTS "${BUNDLED_LUNAR_DATA_SOURCE}")
     add_custom_target(CopyBundledLunarData ALL
@@ -271,6 +288,24 @@ if(EXISTS "${BUNDLED_LUNAR_DATA_SOURCE}")
         COMMENT "Copying bundled Lunar Client data"
         VERBATIM
     )
+
+    if(JAR_EXECUTABLE)
+        add_custom_target(PatchBundledLunarBranding ALL
+            COMMAND ${CMAKE_COMMAND}
+                -DJAR_EXECUTABLE=${JAR_EXECUTABLE}
+                -DLUNAR_JAR=${ATW_LUNAR_BRANDING_TARGET_JAR}
+                -DOVERLAY_DIR=${ATW_LUNAR_BRANDING_OVERLAY}
+                -P "${CMAKE_CURRENT_LIST_DIR}/cmake/patch_lunar_branding.cmake"
+            DEPENDS CopyBundledLunarData
+            COMMENT "Patching bundled Lunar branding resources"
+            VERBATIM
+        )
+
+        add_dependencies(atw-config PatchBundledLunarBranding)
+        add_dependencies(atw-launch PatchBundledLunarBranding)
+    else()
+        message(WARNING "jar executable not found; bundled Lunar branding resources will not be patched")
+    endif()
 
     add_dependencies(atw-config CopyBundledLunarData)
     add_dependencies(atw-launch CopyBundledLunarData)

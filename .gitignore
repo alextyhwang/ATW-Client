@@ -248,11 +248,8 @@ secrets.*
 /atw-client-test/
 /data/
 /runtime/
+/weave-mods/
 /config/settings.json
 /.lunarclient/
 /.minecraft/
 /.weave/
-
-# Local-only ATW LevelHead secrets. Included in local jars when present,
-# but never committed with source releases.
-/weave-mods/atw-levelhead/src/main/resources/atw-levelhead-local.properties
