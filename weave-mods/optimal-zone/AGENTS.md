@@ -284,8 +284,13 @@ Rendering details:
 - Do not add delayed low-pass smoothing for markers by default. It can hide
   pixel-snapping but makes markers feel like they update below the game's frame
   rate.
-- Capture and restore texture, depth, alpha, blend, depth-mask, matrix, and
-  color state so the minimap does not affect later HUD rendering.
+- Guard texture, depth, alpha, blend, depth-mask, matrix, and color state with
+  raw OpenGL attribute/matrix stacks so the minimap does not affect later HUD
+  rendering. Keep all HUD state mutations inside that guard as raw OpenGL calls;
+  mixing them with `GlStateManager` would desynchronize Minecraft's cached
+  state.
+- Reuse chunk loaded checks and references within each terrain pixel's small
+  footprint. Do not retain those references across pixels, ticks, or worlds.
 - Keep terrain sampling local to blocks the client already has loaded. Do not
   request, infer, or cache hidden world data.
 

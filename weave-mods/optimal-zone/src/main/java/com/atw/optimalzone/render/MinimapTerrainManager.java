@@ -122,15 +122,15 @@ final class MinimapTerrainManager {
             return;
         }
 
-        GlStateManager.enableTexture2D();
-        GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
-        GlStateManager.bindTexture(cache.texture.getGlTextureId());
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
+        GL11.glColor4f(1.0F, 1.0F, 1.0F, 1.0F);
+        GL11.glBindTexture(GL11.GL_TEXTURE_2D, cache.texture.getGlTextureId());
         if (expanded) {
             drawTerrainCircle(cache, centerX, centerY, mapRadius, localX, localZ, yawSin, yawCos);
         } else {
             drawTerrainQuad(cache, centerX, centerY, mapRadius, localX, localZ, yawSin, yawCos);
         }
-        GlStateManager.disableTexture2D();
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
     }
 
     void recordHudRender(long renderNanos) {
@@ -295,12 +295,17 @@ final class MinimapTerrainManager {
     }
 
     private static final class TerrainCache {
+        private static final int FOOTPRINT_CHUNK_CACHE_SIZE = 4;
+
         private final double blocksPerPixel;
         private final int visibleHalfSize;
         private final ArrayDeque<SampleTask> pendingTasks = new ArrayDeque<SampleTask>();
         private final boolean[] valid = new boolean[TEXTURE_SIZE * TEXTURE_SIZE];
         private final boolean[] dirty = new boolean[TEXTURE_SIZE * TEXTURE_SIZE];
         private final int[] uploadBuffer = new int[TEXTURE_SIZE * TEXTURE_SIZE];
+        private final int[] footprintChunkXs = new int[FOOTPRINT_CHUNK_CACHE_SIZE];
+        private final int[] footprintChunkZs = new int[FOOTPRINT_CHUNK_CACHE_SIZE];
+        private final Chunk[] footprintChunks = new Chunk[FOOTPRINT_CHUNK_CACHE_SIZE];
 
         private DynamicTexture texture;
         private int[] pixels;
@@ -314,6 +319,7 @@ final class MinimapTerrainManager {
         private int farRefreshCursor;
         private int refreshSelector;
         private int dirtyCount;
+        private int footprintChunkCount;
         private boolean needsFullUpload;
         private boolean failed;
 
@@ -592,6 +598,7 @@ final class MinimapTerrainManager {
             double centerBlockZ = sampleZ * blocksPerPixel;
             int startBlockX = MathHelper.floor_double(centerBlockX - (footprintSize - 1) * 0.5D);
             int startBlockZ = MathHelper.floor_double(centerBlockZ - (footprintSize - 1) * 0.5D);
+            footprintChunkCount = 0;
 
             TerrainColumnSample bestSample = null;
             boolean sawLoadedColumn = false;
@@ -620,12 +627,11 @@ final class MinimapTerrainManager {
         }
 
         private TerrainColumnSample terrainColumnSample(World currentWorld, int blockX, int blockZ, boolean bridgeScan) {
-            BlockPos loadedCheck = new BlockPos(blockX, 64, blockZ);
-            if (!currentWorld.isBlockLoaded(loadedCheck, false)) {
+            Chunk chunk = footprintChunk(currentWorld, blockX >> 4, blockZ >> 4);
+            if (chunk == null) {
                 return TerrainColumnSample.unloaded();
             }
 
-            Chunk chunk = currentWorld.getChunkFromBlockCoords(loadedCheck);
             int localX = blockX & 15;
             int localZ = blockZ & 15;
             int surfaceY = chunk.getHeightValue(localX, localZ) - 1;
@@ -658,6 +664,25 @@ final class MinimapTerrainManager {
             }
 
             return TerrainColumnSample.loaded(surfaceY, 0xF0000000 | shadeTerrain(rgb, surfaceY));
+        }
+
+        private Chunk footprintChunk(World currentWorld, int chunkX, int chunkZ) {
+            for (int index = 0; index < footprintChunkCount; index++) {
+                if (footprintChunkXs[index] == chunkX && footprintChunkZs[index] == chunkZ) {
+                    return footprintChunks[index];
+                }
+            }
+
+            Chunk chunk = currentWorld.isChunkLoaded(chunkX, chunkZ, false)
+                    ? currentWorld.getChunkFromChunkCoords(chunkX, chunkZ)
+                    : null;
+            if (footprintChunkCount < FOOTPRINT_CHUNK_CACHE_SIZE) {
+                footprintChunkXs[footprintChunkCount] = chunkX;
+                footprintChunkZs[footprintChunkCount] = chunkZ;
+                footprintChunks[footprintChunkCount] = chunk;
+                footprintChunkCount++;
+            }
+            return chunk;
         }
 
         private int findBridgeSurface(Chunk chunk, int localX, int localZ) {

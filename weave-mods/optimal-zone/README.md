@@ -126,6 +126,10 @@ The minimap is a lightweight HUD map:
 - Terrain uses separate normal and expanded circular textures. Sampling runs in
   bounded client-tick batches, movement fills only newly exposed samples, and
   mouse rotation only changes texture coordinates.
+- HUD drawing uses a query-free OpenGL state guard instead of reading driver
+  state every frame.
+- Terrain pixels reuse chunk resolution across their 2 by 2 or 3 by 3 sampling
+  footprint.
 - The visible minimap area and unloaded placeholders are refreshed in bounded
   batches, avoiding large render-thread sampling bursts while still picking up
   placed bridge blocks and newly loaded terrain.

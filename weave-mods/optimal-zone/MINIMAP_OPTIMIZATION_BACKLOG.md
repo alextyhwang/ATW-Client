@@ -58,6 +58,21 @@ Verdict meanings:
 | 16 | Replace immediate mode with VBOs | **Defer** | VBOs help large or reused geometry, but this HUD submits very little geometry. Buffer setup/update and old-Lunar compatibility risk can outweigh the gain. Batch immediate-mode geometry first. |
 | 17 | Use PBO texture uploads | **Do not pursue currently** | PBOs can make large transfers asynchronous, but ATW uploads tiny rectangles averaging about `0.038 ms`. Mapping, synchronization, and buffer management are likely to cost more. |
 
+## Active Experiments
+
+Items 1 and 4 were implemented on June 6, 2026 for in-game validation:
+
+- The HUD renderer now uses a query-free OpenGL attribute guard and raw state
+  changes, removing the nine synchronous state queries previously made every
+  frame. The guard restores the real GL state without changing Minecraft's
+  `GlStateManager` cache.
+- Each 2 by 2 or 3 by 3 terrain footprint now caches its resolved chunk
+  references, including unloaded results. Most pixels therefore perform one
+  chunk loaded check and lookup instead of one per sampled column.
+
+These remain experiments until comparable `/atwoverlay perf` runs confirm the
+rendering is correct and show a repeatable timing improvement.
+
 ### Overall Priority After Research
 
 1. Prototype removal of per-frame GL queries behind a diagnostic switch.

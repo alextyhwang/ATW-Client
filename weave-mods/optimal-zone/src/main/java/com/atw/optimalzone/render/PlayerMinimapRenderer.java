@@ -7,7 +7,8 @@ import net.minecraft.client.entity.EntityPlayerSP;
 import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.client.network.NetHandlerPlayClient;
 import net.minecraft.client.network.NetworkPlayerInfo;
-import net.minecraft.client.renderer.GlStateManager;
+import net.minecraft.client.renderer.OpenGlHelper;
+import net.minecraft.client.renderer.texture.ITextureObject;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.util.MathHelper;
@@ -38,6 +39,11 @@ public class PlayerMinimapRenderer {
     private static final float ROTATION_SMOOTHING_RESPONSE = 55.0F;
     private static final float ROTATION_SNAP_DEGREES = 35.0F;
     private static final int MARKER_OUTLINE_COLOR = 0xD0000000;
+    private static final int HUD_STATE_MASK = GL11.GL_ENABLE_BIT
+            | GL11.GL_COLOR_BUFFER_BIT
+            | GL11.GL_DEPTH_BUFFER_BIT
+            | GL11.GL_TEXTURE_BIT
+            | GL11.GL_CURRENT_BIT;
 
     private final OptimalZoneMod mod;
     private final MinimapTerrainManager terrainManager = new MinimapTerrainManager();
@@ -144,15 +150,14 @@ public class PlayerMinimapRenderer {
         long nowNanos = renderStartNanos;
         float partialTicks = framePartialTicks(mc, event.getPartialTicks(), nowNanos);
 
-        RenderStateSnapshot previousState = RenderStateSnapshot.capture();
-        GlStateManager.pushMatrix();
+        GL11.glPushAttrib(HUD_STATE_MASK);
+        GL11.glPushMatrix();
         try {
             setupHudState();
             drawMinimap(mc, partialTicks, smoothRenderYaw(renderYaw(mc, partialTicks), nowNanos));
         } finally {
-            GlStateManager.popMatrix();
-            previousState.restore();
-            GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+            GL11.glPopMatrix();
+            GL11.glPopAttrib();
         }
         terrainManager.recordHudRender(System.nanoTime() - renderStartNanos);
     }
@@ -322,13 +327,13 @@ public class PlayerMinimapRenderer {
     }
 
     private void setupHudState() {
-        GlStateManager.disableTexture2D();
-        GlStateManager.disableDepth();
-        GlStateManager.depthMask(false);
-        GlStateManager.enableAlpha();
-        GlStateManager.enableBlend();
-        GlStateManager.disableCull();
-        GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        GL11.glDisable(GL11.GL_DEPTH_TEST);
+        GL11.glDepthMask(false);
+        GL11.glEnable(GL11.GL_ALPHA_TEST);
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glDisable(GL11.GL_CULL_FACE);
+        OpenGlHelper.glBlendFunc(770, 771, 1, 0);
     }
 
     private void drawBorder(float left, float top, float right, float bottom) {
@@ -356,12 +361,19 @@ public class PlayerMinimapRenderer {
             return;
         }
 
-        GlStateManager.enableTexture2D();
-        GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
-        mc.getTextureManager().bindTexture(skin);
+        ITextureObject skinTexture = mc.getTextureManager().getTexture(skin);
+        if (skinTexture == null) {
+            drawColorRect(centerX - halfHead, centerY - halfHead, centerX + halfHead, centerY + halfHead, color.darker(0.72F), 1.0F);
+            drawHeightIndicator(centerX, centerY, halfHead, heightDelta, color);
+            return;
+        }
+
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
+        GL11.glColor4f(1.0F, 1.0F, 1.0F, 1.0F);
+        GL11.glBindTexture(GL11.GL_TEXTURE_2D, skinTexture.getGlTextureId());
         drawSkinRegion(centerX - halfHead, centerY - halfHead, PLAYER_HEAD_SIZE, 8.0F, 8.0F, 8.0F, 8.0F);
         drawSkinRegion(centerX - halfHead, centerY - halfHead, PLAYER_HEAD_SIZE, 40.0F, 8.0F, 8.0F, 8.0F);
-        GlStateManager.disableTexture2D();
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
         drawHeightIndicator(centerX, centerY, halfHead, heightDelta, color);
     }
 
@@ -450,7 +462,7 @@ public class PlayerMinimapRenderer {
     }
 
     private void drawColorTriangle(float x1, float y1, float x2, float y2, float x3, float y3, OverlayColorResolver.Color color, float alpha) {
-        GlStateManager.color(color.red, color.green, color.blue, alpha);
+        GL11.glColor4f(color.red, color.green, color.blue, alpha);
         GL11.glBegin(GL11.GL_TRIANGLES);
         GL11.glVertex2f(x1, y1);
         GL11.glVertex2f(x2, y2);
@@ -459,7 +471,7 @@ public class PlayerMinimapRenderer {
     }
 
     private void drawColorRect(float left, float top, float right, float bottom, OverlayColorResolver.Color color, float alpha) {
-        GlStateManager.color(color.red, color.green, color.blue, alpha);
+        GL11.glColor4f(color.red, color.green, color.blue, alpha);
         GL11.glBegin(GL11.GL_QUADS);
         GL11.glVertex2f(left, bottom);
         GL11.glVertex2f(right, bottom);
@@ -493,105 +505,7 @@ public class PlayerMinimapRenderer {
         float red = (float) (color >> 16 & 255) / 255.0F;
         float green = (float) (color >> 8 & 255) / 255.0F;
         float blue = (float) (color & 255) / 255.0F;
-        GlStateManager.color(red, green, blue, alpha);
-    }
-
-    private static class RenderStateSnapshot {
-        private final boolean texture2D;
-        private final boolean depth;
-        private final boolean alpha;
-        private final boolean blend;
-        private final boolean cull;
-        private final boolean pointSmooth;
-        private final boolean depthMask;
-        private final int textureBinding;
-        private final float pointSize;
-
-        private RenderStateSnapshot(boolean texture2D, boolean depth, boolean alpha, boolean blend, boolean cull, boolean pointSmooth, boolean depthMask, int textureBinding, float pointSize) {
-            this.texture2D = texture2D;
-            this.depth = depth;
-            this.alpha = alpha;
-            this.blend = blend;
-            this.cull = cull;
-            this.pointSmooth = pointSmooth;
-            this.depthMask = depthMask;
-            this.textureBinding = textureBinding;
-            this.pointSize = pointSize;
-        }
-
-        private static RenderStateSnapshot capture() {
-            return new RenderStateSnapshot(
-                    GL11.glIsEnabled(GL11.GL_TEXTURE_2D),
-                    GL11.glIsEnabled(GL11.GL_DEPTH_TEST),
-                    GL11.glIsEnabled(GL11.GL_ALPHA_TEST),
-                    GL11.glIsEnabled(GL11.GL_BLEND),
-                    GL11.glIsEnabled(GL11.GL_CULL_FACE),
-                    GL11.glIsEnabled(GL11.GL_POINT_SMOOTH),
-                    GL11.glGetBoolean(GL11.GL_DEPTH_WRITEMASK),
-                    GL11.glGetInteger(GL11.GL_TEXTURE_BINDING_2D),
-                    GL11.glGetFloat(GL11.GL_POINT_SIZE)
-            );
-        }
-
-        private void restore() {
-            GlStateManager.bindTexture(textureBinding);
-            restoreTexture2D(texture2D);
-            restoreDepth(depth);
-            restoreAlpha(alpha);
-            restoreBlend(blend);
-            restoreCull(cull);
-            restorePointSmooth(pointSmooth);
-            GlStateManager.depthMask(depthMask);
-            GL11.glPointSize(pointSize);
-        }
-
-        private static void restoreTexture2D(boolean enabled) {
-            if (enabled) {
-                GlStateManager.enableTexture2D();
-            } else {
-                GlStateManager.disableTexture2D();
-            }
-        }
-
-        private static void restoreDepth(boolean enabled) {
-            if (enabled) {
-                GlStateManager.enableDepth();
-            } else {
-                GlStateManager.disableDepth();
-            }
-        }
-
-        private static void restoreAlpha(boolean enabled) {
-            if (enabled) {
-                GlStateManager.enableAlpha();
-            } else {
-                GlStateManager.disableAlpha();
-            }
-        }
-
-        private static void restoreBlend(boolean enabled) {
-            if (enabled) {
-                GlStateManager.enableBlend();
-            } else {
-                GlStateManager.disableBlend();
-            }
-        }
-
-        private static void restoreCull(boolean enabled) {
-            if (enabled) {
-                GlStateManager.enableCull();
-            } else {
-                GlStateManager.disableCull();
-            }
-        }
-
-        private static void restorePointSmooth(boolean enabled) {
-            if (enabled) {
-                GL11.glEnable(GL11.GL_POINT_SMOOTH);
-            } else {
-                GL11.glDisable(GL11.GL_POINT_SMOOTH);
-            }
-        }
+        GL11.glColor4f(red, green, blue, alpha);
     }
 
 }
