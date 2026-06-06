@@ -166,10 +166,11 @@ Read that file before changing the overlay renderer. Important current behavior:
 - Optimal Zone draws a green camera-facing marker on the closest reachable point
   of the selected enemy player's hitbox.
 - The marker fills when the crosshair ray is inside it.
-- A local hit-confirm sound plays when a player takes damage shortly after the
-  crosshair was inside the marker.
+- A local hit-confirm sound uses a pitched-down vanilla player hurt sound when a
+  player takes damage shortly after the crosshair was inside the marker.
 - Projectile trajectories are local-only bow and ender pearl overlays. They do
-  not aim, rotate the player, select targets, or send packets.
+  not aim, rotate the player, select targets, or send packets. The path uses a
+  close-to-far color gradient so range along the arc is readable.
 - Chams is not a box ESP. It only draws occluded player fragments.
 - Visible players are left to Minecraft's normal renderer.
 - The hidden-player overlay draws only the base player model, not armor,
@@ -178,9 +179,13 @@ Read that file before changing the overlay renderer. Important current behavior:
   fill.
 - Hidden silhouettes use the player's scoreboard/team nametag color when
   available, with a light gray fallback and a slightly darker outline.
-- Minimap renders from `RenderGameOverlayEvent.Post` as a top-right 88 by 88
-  square, shows only loaded players within 25 blocks, rotates heading-up with
-  player yaw, and uses the same team-color resolver as chams.
+- Minimap renders from `RenderGameOverlayEvent.Post` as a top-left 128 by 128
+  square with 1.5 world blocks per HUD pixel, shows only loaded players in its
+  displayed range, rotates heading-up with player yaw, and uses the same
+  team-color resolver as chams.
+- Minimap terrain sampling runs in bounded client-tick batches using chunk
+  heightmaps/direct storage access. Rendering only draws cached circular GPU
+  textures, and terrain updates use dirty-rectangle uploads.
 - Debug target output includes entity class/id/UUID/name, formatted display
   name, scoreboard team, `GameProfile`, `NetworkPlayerInfo`, and NBT. Compare
   real player and NPC dumps before adding minimap NPC filters.
