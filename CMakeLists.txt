@@ -219,43 +219,35 @@ endforeach()
 # ------------------------- Copy bundled Weave mods -----------------------
 
 set(BUNDLED_WEAVE_MODS_SOURCE ${CMAKE_CURRENT_LIST_DIR}/weave-mods/runtime)
-set(BUNDLED_WEAVE_MODS_DEST ${CMAKE_BINARY_DIR}/weave-mods)
-set(ATW_LEVELHEAD_PROJECT_DIR ${CMAKE_CURRENT_LIST_DIR}/weave-mods/atw-levelhead)
-set(ATW_LEVELHEAD_JAR ${ATW_LEVELHEAD_PROJECT_DIR}/build/libs/ATWLevelHead-0.1.0.jar)
-set(ATW_LEVELHEAD_RUNTIME_JAR ${BUNDLED_WEAVE_MODS_SOURCE}/ATWLevelHead-0.1.0.jar)
-set(ATW_REBRAND_PROJECT_DIR ${CMAKE_CURRENT_LIST_DIR}/weave-mods/atw-rebrand)
-set(ATW_REBRAND_JAR ${ATW_REBRAND_PROJECT_DIR}/build/libs/ATWRebrand-0.1.0.jar)
-set(ATW_REBRAND_RUNTIME_JAR ${BUNDLED_WEAVE_MODS_SOURCE}/ATWRebrand-0.1.0.jar)
-
-add_custom_target(BuildATWLevelHead
-    COMMAND cmd /c gradlew.bat build
-    COMMAND ${CMAKE_COMMAND} -E make_directory "${BUNDLED_WEAVE_MODS_SOURCE}"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${ATW_LEVELHEAD_JAR}" "${ATW_LEVELHEAD_RUNTIME_JAR}"
-    WORKING_DIRECTORY "${ATW_LEVELHEAD_PROJECT_DIR}"
-    COMMENT "Building bundled ATW LevelHead Weave mod"
-    VERBATIM
-)
-
-add_custom_target(BuildATWRebrand
-    COMMAND cmd /c gradlew.bat build
-    COMMAND ${CMAKE_COMMAND} -E make_directory "${BUNDLED_WEAVE_MODS_SOURCE}"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${ATW_REBRAND_JAR}" "${ATW_REBRAND_RUNTIME_JAR}"
-    WORKING_DIRECTORY "${ATW_REBRAND_PROJECT_DIR}"
-    COMMENT "Building bundled ATW Rebrand Weave mod"
-    VERBATIM
-)
-
+set(BUNDLED_WEAVE_MODS_DEST ${CMAKE_BINARY_DIR}/data/home/.weave/mods)
+# Port builds are explicit: install verified outputs before configuring CMake.
+# This avoids silently rebuilding an obsolete 0.2.6 artifact during launcher builds.
 add_custom_target(CopyBundledWeaveMods ALL
     COMMAND ${CMAKE_COMMAND} -E make_directory "${BUNDLED_WEAVE_MODS_DEST}"
     COMMAND ${CMAKE_COMMAND} -E copy_directory "${BUNDLED_WEAVE_MODS_SOURCE}" "${BUNDLED_WEAVE_MODS_DEST}"
-    COMMENT "Copying bundled Weave mods to runtime folder"
+    COMMENT "Copying verified Minecraft 1.8.9 Weave 1.4.1 mods"
     VERBATIM
 )
-add_dependencies(CopyBundledWeaveMods BuildATWLevelHead)
-add_dependencies(CopyBundledWeaveMods BuildATWRebrand)
-
+set(ATW_WEAVE_RUNTIME_SOURCE "${CMAKE_CURRENT_LIST_DIR}/runtime/weave")
+set(ATW_WEAVE_RUNTIME_DEST "${CMAKE_BINARY_DIR}/runtime/weave")
+foreach(WEAVE_FILE IN ITEMS
+        "Weave-Loader-Agent-1.4.1.jar" "vanilla-1.8.9.jar"
+        "maven-repository/net/weavemc/api/api-v1_8/1.4.1/api-v1_8-1.4.1.jar")
+    if(NOT EXISTS "${ATW_WEAVE_RUNTIME_SOURCE}/${WEAVE_FILE}")
+        message(FATAL_ERROR "Install the pinned Weave runtime before building: ${WEAVE_FILE}")
+    endif()
+endforeach()
+add_custom_target(CopyBundledWeaveRuntime ALL
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${ATW_WEAVE_RUNTIME_DEST}"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory "${ATW_WEAVE_RUNTIME_SOURCE}" "${ATW_WEAVE_RUNTIME_DEST}"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/data/home/.weave/.maven-repository"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory "${ATW_WEAVE_RUNTIME_SOURCE}/maven-repository"
+        "${CMAKE_BINARY_DIR}/data/home/.weave/.maven-repository"
+    COMMENT "Copying pinned Weave agent, vanilla jar, and private offline API repository"
+    VERBATIM
+)
 foreach(ATW_TARGET IN LISTS ATW_TARGETS)
-    add_dependencies(${ATW_TARGET} CopyBundledWeaveMods)
+    add_dependencies(${ATW_TARGET} CopyBundledWeaveMods CopyBundledWeaveRuntime)
 endforeach()
 
 # ------------------------- Copy bundled Java runtime -----------------------
@@ -277,14 +269,17 @@ endforeach()
 # ------------------------- Copy bundled Lunar Client data -----------------
 
 set(BUNDLED_LUNAR_DATA_SOURCE ${CMAKE_CURRENT_LIST_DIR}/data/lunarclient)
-set(BUNDLED_LUNAR_DATA_DEST ${CMAKE_BINARY_DIR}/data/lunarclient)
+set(BUNDLED_LUNAR_DATA_DEST ${CMAKE_BINARY_DIR}/data/home/.lunarclient)
 set(ATW_LUNAR_BRANDING_OVERLAY ${CMAKE_CURRENT_LIST_DIR}/res/lunar-overrides)
 set(ATW_LUNAR_BRANDING_TARGET_JAR ${BUNDLED_LUNAR_DATA_DEST}/offline/multiver/lunar.jar)
 
 if(EXISTS "${BUNDLED_LUNAR_DATA_SOURCE}")
     add_custom_target(CopyBundledLunarData ALL
         COMMAND ${CMAKE_COMMAND} -E make_directory "${BUNDLED_LUNAR_DATA_DEST}"
-        COMMAND ${CMAKE_COMMAND} -E copy_directory "${BUNDLED_LUNAR_DATA_SOURCE}" "${BUNDLED_LUNAR_DATA_DEST}"
+        COMMAND ${CMAKE_COMMAND}
+            -DSOURCE=${BUNDLED_LUNAR_DATA_SOURCE}
+            -DDESTINATION=${BUNDLED_LUNAR_DATA_DEST}
+            -P "${CMAKE_CURRENT_LIST_DIR}/cmake/copy_lunar_runtime.cmake"
         COMMENT "Copying bundled Lunar Client data"
         VERBATIM
     )

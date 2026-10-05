@@ -5,6 +5,7 @@
 #include "offlinelauncher.h"
 
 #include <QCoreApplication>
+#include <QCryptographicHash>
 #include <QProcess>
 #include <QDir>
 #include <QDirIterator>
@@ -20,6 +21,8 @@
 #include <QRegularExpression>
 #include <QHostInfo>
 
+#include <memory>
+
 #include "util/fs.h"
 #include "util/utils.h"
 
@@ -28,6 +31,63 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#endif
+
+#ifdef Q_OS_WIN
+namespace {
+constexpr wchar_t kMinecraftWindowTitle[] = L"ATW Client 1.8.9";
+
+struct MinecraftWindowBrandingContext {
+    DWORD pid = 0;
+    HICON largeIcon = nullptr;
+    HICON smallIcon = nullptr;
+
+    ~MinecraftWindowBrandingContext() {
+        if (largeIcon)
+            DestroyIcon(largeIcon);
+        if (smallIcon)
+            DestroyIcon(smallIcon);
+    }
+};
+
+bool isWindowsProcessRunning(DWORD pid) {
+    HANDLE process = OpenProcess(SYNCHRONIZE, FALSE, pid);
+    if (!process)
+        return false;
+
+    const DWORD waitResult = WaitForSingleObject(process, 0);
+    CloseHandle(process);
+    return waitResult == WAIT_TIMEOUT;
+}
+
+bool applyMinecraftWindowBranding(const std::shared_ptr<MinecraftWindowBrandingContext>& context) {
+    struct EnumContext {
+        MinecraftWindowBrandingContext* branding;
+        bool foundWindow;
+    };
+
+    EnumContext enumContext{context.get(), false};
+    EnumWindows([](HWND hwnd, LPARAM lParam) -> BOOL {
+        EnumContext* enumContext = reinterpret_cast<EnumContext*>(lParam);
+        DWORD windowPid = 0;
+        GetWindowThreadProcessId(hwnd, &windowPid);
+        if (windowPid != enumContext->branding->pid || !IsWindowVisible(hwnd))
+            return TRUE;
+
+        enumContext->foundWindow = true;
+        SetWindowTextW(hwnd, kMinecraftWindowTitle);
+        if (enumContext->branding->largeIcon && enumContext->branding->smallIcon) {
+            SendMessageW(hwnd, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(enumContext->branding->largeIcon));
+            SendMessageW(hwnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(enumContext->branding->smallIcon));
+            SetClassLongPtrW(hwnd, GCLP_HICON, reinterpret_cast<LONG_PTR>(enumContext->branding->largeIcon));
+            SetClassLongPtrW(hwnd, GCLP_HICONSM, reinterpret_cast<LONG_PTR>(enumContext->branding->smallIcon));
+        }
+        return TRUE;
+    }, reinterpret_cast<LPARAM>(&enumContext));
+
+    return enumContext.foundWindow;
+}
+}
 #endif
 
 OfflineLauncher::OfflineLauncher(const Config& config, const bool useCustomAssetIndex, const QString& customAssetIndex, QObject *parent) : Launcher(config, useCustomAssetIndex, customAssetIndex, parent) {
@@ -39,6 +99,14 @@ struct JavaProbeResult {
     bool ok = false;
     QString output;
 };
+
+static QProcessEnvironment cleanJavaEnvironment() {
+    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+    for (const char* name : {"JAVA_OPTS", "_JAVA_OPTS", "JAVA_OPTIONS", "_JAVA_OPTIONS",
+                            "JAVA_TOOL_OPTIONS", "_JAVA_TOOL_OPTIONS", "JDK_JAVA_OPTIONS", "_JDK_JAVA_OPTIONS"})
+        env.remove(QString::fromLatin1(name));
+    return env;
+}
 
 static QStringList stableG1ProfileArgs() {
     return {
@@ -82,95 +150,42 @@ static void appendLauncherLog(const QString& line) {
     }
 }
 
-static QString legacyWeaveModsDirectory() {
-    return FS::combinePaths(QDir::homePath(), QStringLiteral(".weave"), QStringLiteral("mods"));
+static QString weaveRuntimeDirectory() {
+    return FS::combinePaths(QCoreApplication::applicationDirPath(), QStringLiteral("runtime/weave"));
 }
 
-static bool isJunctionOrSymlinkTo(const QString& path, const QString& target) {
-    QFileInfo info(path);
-    if (!info.exists() || !info.isSymLink())
-        return false;
-
-    return QDir::cleanPath(info.symLinkTarget()).compare(QDir::cleanPath(target), Qt::CaseInsensitive) == 0;
+static QString weaveRepositoryDirectory() {
+    return FS::combinePaths(QCoreApplication::applicationDirPath(),
+                            QStringLiteral("data/home/.weave/.maven-repository"));
 }
 
-static QString nextBackupPath(const QString& path) {
-    QString backup = path + QStringLiteral(".backup-atw");
-    if (!QFileInfo::exists(backup))
-        return backup;
-
-    for (int index = 1; index < 100; ++index) {
-        QString candidate = backup + QStringLiteral("-") + QString::number(index);
-        if (!QFileInfo::exists(candidate))
-            return candidate;
-    }
-
-    return {};
-}
-
-static bool runCmd(const QStringList& arguments) {
-    QProcess process;
-    process.setProgram(QStringLiteral("cmd"));
-    process.setArguments(arguments);
-    process.start();
-    if (!process.waitForFinished(10000))
-        return false;
-
-    return process.exitStatus() == QProcess::NormalExit && process.exitCode() == 0;
-}
-
-static bool ensureConfiguredWeaveModsDirectory(QString* errorMessage) {
-    const QString configuredModsDir = QDir::cleanPath(FS::getWeaveModsDirectory());
-    const QString legacyModsDir = QDir::cleanPath(legacyWeaveModsDirectory());
-
-    QDir().mkpath(configuredModsDir);
-    QDir().mkpath(QFileInfo(legacyModsDir).absolutePath());
-
-    if (configuredModsDir.compare(legacyModsDir, Qt::CaseInsensitive) == 0)
+static bool verifyWeaveFile(const QString& path, const QByteArray& expectedHash, QString* errorMessage) {
+    QFile file(path);
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    if (file.open(QIODevice::ReadOnly) && hash.addData(&file) && hash.result().toHex() == expectedHash)
         return true;
+    if (errorMessage)
+        *errorMessage = QStringLiteral("Missing or incorrect pinned Weave 1.4.1 dependency: ") + path;
+    return false;
+}
 
-    if (isJunctionOrSymlinkTo(legacyModsDir, configuredModsDir))
+static bool ensureConfiguredWeaveRuntime(QString* errorMessage) {
+    const QString runtime = weaveRuntimeDirectory();
+    const QString repo = weaveRepositoryDirectory();
+    const QString api = FS::combinePaths(repo,
+        QStringLiteral("net/weavemc/api/api-v1_8/1.4.1/api-v1_8-1.4.1.jar"));
+    if (!verifyWeaveFile(FS::combinePaths(runtime, QStringLiteral("Weave-Loader-Agent-1.4.1.jar")),
+            QByteArrayLiteral("9fbcada12fc031426eb80613b02b9be31d83add6a116720b7e17e4439d28b4c8"), errorMessage)
+            || !verifyWeaveFile(api,
+                QByteArrayLiteral("a536d86e37d61a7ac730e598368cf1c128662c44fc5ae18936f1e529eacea8c9"), errorMessage)
+            || !verifyWeaveFile(FS::combinePaths(runtime, QStringLiteral("vanilla-1.8.9.jar")),
+                QByteArrayLiteral("14f0d96d1a56fb4f5c3b2233d00699525893fe5ce3dcf181e7de59120595d298"), errorMessage))
+        return false;
+    if (QDir().mkpath(FS::getWeaveModsDirectory()))
         return true;
-
-    QFileInfo legacyInfo(legacyModsDir);
-    if (legacyInfo.exists()) {
-        if (legacyInfo.isSymLink()) {
-            if (!QFile::remove(legacyModsDir)) {
-                if (errorMessage)
-                    *errorMessage = QStringLiteral("Unable to remove stale Weave mods link: ") + legacyModsDir;
-                return false;
-            }
-        } else {
-            const QString backupPath = nextBackupPath(legacyModsDir);
-            if (backupPath.isEmpty() || !QDir().rename(legacyModsDir, backupPath)) {
-                if (errorMessage)
-                    *errorMessage = QStringLiteral("Unable to back up existing Weave mods folder: ") + legacyModsDir;
-                return false;
-            }
-            appendLauncherLog(QStringLiteral("[Weave] Backed up legacy mods folder to ") + backupPath);
-        }
-    }
-
-#ifdef Q_OS_WIN
-    if (!runCmd({QStringLiteral("/c"), QStringLiteral("mklink"), QStringLiteral("/J"),
-                 QDir::toNativeSeparators(legacyModsDir),
-                 QDir::toNativeSeparators(configuredModsDir)})) {
-        if (errorMessage)
-            *errorMessage = QStringLiteral("Unable to create Weave mods junction from ")
-                    + legacyModsDir + QStringLiteral(" to ") + configuredModsDir;
-        return false;
-    }
-#else
-    if (!QFile::link(configuredModsDir, legacyModsDir)) {
-        if (errorMessage)
-            *errorMessage = QStringLiteral("Unable to link Weave mods directory: ") + legacyModsDir;
-        return false;
-    }
-#endif
-
-    appendLauncherLog(QStringLiteral("[Weave] Linked legacy mods folder to configured folder: ")
-            + legacyModsDir + QStringLiteral(" -> ") + configuredModsDir);
-    return true;
+    if (errorMessage)
+        *errorMessage = QStringLiteral("Unable to create package Weave mods folder: ") + FS::getWeaveModsDirectory();
+    return false;
 }
 
 static QString probeJavaExecutable(const QString& executable) {
@@ -188,16 +203,34 @@ static JavaProbeResult probeJava(const QString& executable) {
     QProcess probe;
     probe.setProgram(probeJavaExecutable(executable));
     probe.setArguments({QStringLiteral("-version")});
+    probe.setProcessEnvironment(cleanJavaEnvironment());
+#ifdef Q_OS_WIN
+    probe.setCreateProcessArgumentsModifier([](QProcess::CreateProcessArguments* args) {
+        args->flags |= CREATE_NO_WINDOW;
+    });
+#endif
     probe.start();
+    if (!probe.waitForStarted(5000)) {
+        result.output = QStringLiteral("Unable to start Java version probe (%1): %2")
+            .arg(probe.program(), probe.errorString());
+        return result;
+    }
     if (!probe.waitForFinished(5000)) {
         probe.kill();
         probe.waitForFinished(1000);
-        result.output = QStringLiteral("Java version probe timed out.");
+        result.output = QStringLiteral("Java version probe timed out (%1).\n%2")
+            .arg(probe.program(), QString::fromLocal8Bit(probe.readAllStandardError() + probe.readAllStandardOutput()));
         return result;
     }
 
-    result.ok = probe.exitCode() == 0;
+    result.ok = probe.exitStatus() == QProcess::NormalExit && probe.exitCode() == 0;
     result.output = QString::fromLocal8Bit(probe.readAllStandardError() + probe.readAllStandardOutput());
+    if (!result.ok) {
+        result.output.prepend(QStringLiteral("Java version probe failed (%1), exit code %2, %3.\n")
+            .arg(probe.program()).arg(probe.exitCode())
+            .arg(probe.exitStatus() == QProcess::CrashExit ? QStringLiteral("crashed") : QStringLiteral("normal exit")));
+        return result;
+    }
     result.isGraalVm = result.output.contains(QStringLiteral("GraalVM"), Qt::CaseInsensitive);
 
     QRegularExpression versionRegex(QStringLiteral("version\\s+\"([0-9]+)(?:\\.([0-9]+))?"));
@@ -206,6 +239,9 @@ static JavaProbeResult probeJava(const QString& executable) {
         int first = match.captured(1).toInt();
         int second = match.captured(2).toInt();
         result.majorVersion = first == 1 ? second : first;
+    } else {
+        result.ok = false;
+        result.output.prepend(QStringLiteral("Unable to parse Java version (%1).\n").arg(probe.program()));
     }
 
     return result;
@@ -215,6 +251,12 @@ static bool validateJavaFlags(const QString& executable, const QStringList& flag
     QProcess validator;
     validator.setProgram(probeJavaExecutable(executable));
     validator.setArguments(flags + QStringList{QStringLiteral("-version")});
+    validator.setProcessEnvironment(cleanJavaEnvironment());
+#ifdef Q_OS_WIN
+    validator.setCreateProcessArgumentsModifier([](QProcess::CreateProcessArguments* args) {
+        args->flags |= CREATE_NO_WINDOW;
+    });
+#endif
     validator.start();
     if (!validator.waitForFinished(6000)) {
         validator.kill();
@@ -421,6 +463,10 @@ bool OfflineLauncher::launch() {
         emit error("No version selected!\nDo you have lunar installed?");
         return false;
     }
+    if (config.gameVersion != QStringLiteral("1.8.9")) {
+        emit error("This ATW build supports Minecraft 1.8.9 only.");
+        return false;
+    }
     if (isProcessRunning()) {
         emit error("Game is already running.");
         return false;
@@ -440,8 +486,18 @@ bool OfflineLauncher::launch() {
     QString logsDir = FS::getLunarLogsPath();
     QDir().mkpath(logsDir);
 
+    const JavaProbeResult javaProbe = probeJava(executable);
+    if (config.useWeave && (!javaProbe.ok || javaProbe.majorVersion < 17)) {
+        const QString message = javaProbe.ok
+            ? QStringLiteral("Weave 1.4.1 requires Java 17 or newer; detected Java %1. Use the package Java runtime.").arg(javaProbe.majorVersion)
+            : QStringLiteral("Unable to verify Java for Weave 1.4.1.\n") + javaProbe.output.trimmed();
+        appendLauncherLog(QStringLiteral("[Weave Java] ") + message + QStringLiteral("\n") + javaProbe.output.trimmed());
+        emit error(message);
+        process->deleteLater();
+        process = nullptr;
+        return false;
+    }
 #ifdef ATW_TEST_PORTABLE
-    JavaProbeResult javaProbe = probeJava(executable);
     if (!javaProbe.ok)
         appendLauncherLog(QStringLiteral("[Java Optimizer] Java version probe failed: ") + javaProbe.output.trimmed().replace('\n', ' '));
     logLatencyDiagnostics(config, javaProbe);
@@ -487,19 +543,29 @@ bool OfflineLauncher::launch() {
 
     args << Utils::getAgentFlags("NativesPrepare", nativesFile);
 
+    if (config.enableLunarEnable) {
+        const QString lunarEnableAgent = FS::combinePaths(FS::getAgentsDirectory(), QStringLiteral("ATWLunarEnable"));
+        if (QFileInfo::exists(lunarEnableAgent)) {
+            args << Utils::getAgentFlags("ATWLunarEnable");
+        } else {
+            appendLauncherLog(QStringLiteral("[ATW LunarEnable] Bundled agent was not found; continuing without it."));
+        }
+    }
+
     for(const Agent& agent : config.agents)
         if(agent.enabled)
             args << "-javaagent:" + agent.path + '=' + agent.option;
 
     if(config.useWeave) {
         QString weaveModsError;
-        if (!ensureConfiguredWeaveModsDirectory(&weaveModsError)) {
+        if (!ensureConfiguredWeaveRuntime(&weaveModsError)) {
             emit error(weaveModsError);
             process->deleteLater();
             process = nullptr;
             return false;
         }
-        args << Utils::getAgentFlags("WeaveLoader");
+        args << "-javaagent:" + FS::combinePaths(weaveRuntimeDirectory(),
+                    QStringLiteral("Weave-Loader-Agent-1.4.1.jar"));
     }
 
 #ifdef ATW_TEST_PORTABLE
@@ -512,7 +578,42 @@ bool OfflineLauncher::launch() {
     args << sanitizeJvmArgs(QProcess::splitCommand(config.jvmArgs));
 #endif
 
+    if (config.useWeave) {
+        for (int index = args.size() - 1; index >= 0; --index) {
+            if (args[index].startsWith(QStringLiteral("-Dweave.")))
+                args.removeAt(index);
+        }
+        const QString privateHome = FS::combinePaths(qApp->applicationDirPath(), QStringLiteral("data/home"));
+        const QString privateTemp = FS::combinePaths(qApp->applicationDirPath(), QStringLiteral("data/tmp"));
+        if (!QDir().mkpath(privateHome) || !QDir().mkpath(privateTemp)) {
+            emit error("Extract ATW into a writable folder; cannot create private Java storage.");
+            process->deleteLater();
+            process = nullptr;
+            return false;
+        }
+        args << "-Duser.home=" + privateHome << "-Djava.io.tmpdir=" + privateTemp
+             << "-Dweave.mods.directory=" + FS::getWeaveModsDirectory()
+             << "-Dweave.vanilla.jar.path=" + FS::combinePaths(weaveRuntimeDirectory(), QStringLiteral("vanilla-1.8.9.jar"))
+             << "-Dweave.repo.local.path=" + weaveRepositoryDirectory()
+             << QStringLiteral("-Dweave.repo.offline.enabled=%1").arg(config.weaveOffline ? "true" : "false");
+    }
+
     QString accessToken, username, uuid, userProperties;
+#ifdef ATW_PACKAGE_MODE
+    // Set these after custom flags so a copied setting cannot redirect storage.
+    const QString portableHome = FS::combinePaths(qApp->applicationDirPath(), "data/home");
+    const QString portableTemp = FS::combinePaths(qApp->applicationDirPath(), "data/tmp");
+    for (const QString& directory : {portableHome, portableTemp,
+            portableHome + "/AppData/Roaming", portableHome + "/AppData/Local"}) {
+        if (!QDir().mkpath(directory)) {
+            emit error("Extract ATW into a writable folder. Cannot create: " + directory);
+            process->deleteLater();
+            process = nullptr;
+            return false;
+        }
+    }
+    args << "-Duser.home=" + portableHome << "-Djava.io.tmpdir=" + portableTemp;
+#endif
     loadActiveAccount(accessToken, username, uuid, userProperties);
 
     if (accessToken.isEmpty()) {
@@ -521,7 +622,7 @@ bool OfflineLauncher::launch() {
     }
 
     QString gameDir = config.useCustomMinecraftDir ? config.customMinecraftDir : FS::getMinecraftDirectory();
-    sanitizeMinecraftOptions(gameDir);
+    sanitizeMinecraftOptions(gameDir, config.maxFps);
 
     QStringList genesisArgs{
             "com.moonsworth.lunar.genesis.Genesis",
@@ -551,15 +652,15 @@ bool OfflineLauncher::launch() {
 
     process->setArguments(args);
 
-    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-    env.remove("JAVA_OPTS");
-    env.remove("_JAVA_OPTS");
-    env.remove("JAVA_OPTIONS");
-    env.remove("_JAVA_OPTIONS");
-    env.remove("JAVA_TOOL_OPTIONS");
-    env.remove("_JAVA_TOOL_OPTIONS");
-    env.remove("JDK_JAVA_OPTIONS");
-    env.remove("_JDK_JAVA_OPTIONS");
+    QProcessEnvironment env = cleanJavaEnvironment();
+#ifdef ATW_PACKAGE_MODE
+    env.insert("USERPROFILE", QDir::toNativeSeparators(portableHome));
+    env.insert("HOME", QDir::toNativeSeparators(portableHome));
+    env.insert("APPDATA", QDir::toNativeSeparators(portableHome + "/AppData/Roaming"));
+    env.insert("LOCALAPPDATA", QDir::toNativeSeparators(portableHome + "/AppData/Local"));
+    env.insert("TEMP", QDir::toNativeSeparators(portableTemp));
+    env.insert("TMP", QDir::toNativeSeparators(portableTemp));
+#endif
 
     process->setProcessEnvironment(env);
 
@@ -717,29 +818,66 @@ QStringList OfflineLauncher::sanitizeJvmArgs(const QStringList& args, QStringLis
     return filteredArgs;
 }
 
-void OfflineLauncher::sanitizeMinecraftOptions(const QString& gameDir) {
+void OfflineLauncher::sanitizeMinecraftOptions(const QString& gameDir, int maxFps) {
     QString optionsPath = FS::combinePaths(gameDir, QStringLiteral("options.txt"));
     QFile optionsFile(optionsPath);
-    if (!optionsFile.exists() || !optionsFile.open(QIODevice::ReadOnly | QIODevice::Text))
-        return;
+    if (optionsFile.exists() && optionsFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QList<QByteArray> lines = optionsFile.readAll().split('\n');
+        optionsFile.close();
 
-    QList<QByteArray> lines = optionsFile.readAll().split('\n');
-    optionsFile.close();
+        bool changed = false;
+        bool foundMaxFps = false;
+        for (QByteArray& line : lines) {
+            QByteArray trimmed = line.trimmed();
+            if (trimmed == "streamPreferredServer:") {
+                line = "streamPreferredServer:default";
+                changed = true;
+            } else if (trimmed.startsWith("maxFps:")) {
+                foundMaxFps = true;
+                const QByteArray updated = "maxFps:" + QByteArray::number(maxFps);
+                if (trimmed != updated) {
+                    line = updated;
+                    changed = true;
+                }
+            }
+        }
 
-    bool changed = false;
-    for (QByteArray& line : lines) {
-        QByteArray trimmed = line.trimmed();
-        if (trimmed == "streamPreferredServer:") {
-            line = "streamPreferredServer:default";
+        if (!foundMaxFps) {
+            lines.append("maxFps:" + QByteArray::number(maxFps));
             changed = true;
+        }
+
+        if (changed && optionsFile.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+            optionsFile.write(lines.join('\n'));
+            optionsFile.close();
         }
     }
 
-    if (!changed || !optionsFile.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate))
+    QString lunarOptionsPath = FS::combinePaths(gameDir, QStringLiteral("optionsLC.txt"));
+    QFile lunarOptionsFile(lunarOptionsPath);
+    if (!lunarOptionsFile.exists() || !lunarOptionsFile.open(QIODevice::ReadOnly | QIODevice::Text))
         return;
 
-    optionsFile.write(lines.join('\n'));
-    optionsFile.close();
+    QJsonParseError parseError;
+    QJsonDocument lunarOptionsDocument = QJsonDocument::fromJson(lunarOptionsFile.readAll(), &parseError);
+    lunarOptionsFile.close();
+    if (parseError.error != QJsonParseError::NoError || !lunarOptionsDocument.isObject())
+        return;
+
+    QJsonObject lunarOptions = lunarOptionsDocument.object();
+    const QString maxFpsText = QString::number(maxFps);
+    if (lunarOptions.value(QStringLiteral("maxFps")).toString() == maxFpsText
+            && lunarOptions.value(QStringLiteral("maxFPS")).toInt() == maxFps) {
+        return;
+    }
+
+    lunarOptions[QStringLiteral("maxFps")] = maxFpsText;
+    lunarOptions[QStringLiteral("maxFPS")] = maxFps;
+    if (!lunarOptionsFile.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate))
+        return;
+
+    lunarOptionsFile.write(QJsonDocument(lunarOptions).toJson(QJsonDocument::Compact));
+    lunarOptionsFile.close();
 }
 
 void OfflineLauncher::HelperLaunch(const QString& helper) {
@@ -756,43 +894,36 @@ void OfflineLauncher::HelperLaunch(const QString& helper) {
 
 void OfflineLauncher::scheduleMinecraftWindowIcon(qint64 pid) {
 #ifdef Q_OS_WIN
-    const QList<int> delays{500, 1500, 3000, 6000, 10000};
-    for (int delay : delays) {
-        QTimer::singleShot(delay, [pid]() {
-            struct IconContext {
-                DWORD pid;
-                HICON largeIcon;
-                HICON smallIcon;
-            };
+    if (pid <= 0)
+        return;
 
-            QString iconPath = FS::combinePaths(qApp->applicationDirPath(), QStringLiteral("minecraft.ico"));
-            std::wstring nativeIconPath = QFileInfo::exists(iconPath)
-                ? QDir::toNativeSeparators(iconPath).toStdWString()
-                : std::wstring();
-            IconContext context{
-                static_cast<DWORD>(pid),
-                nativeIconPath.empty() ? nullptr : static_cast<HICON>(LoadImageW(nullptr, nativeIconPath.c_str(), IMAGE_ICON, 32, 32, LR_LOADFROMFILE)),
-                nativeIconPath.empty() ? nullptr : static_cast<HICON>(LoadImageW(nullptr, nativeIconPath.c_str(), IMAGE_ICON, 16, 16, LR_LOADFROMFILE))
-            };
+    QString iconPath = FS::combinePaths(qApp->applicationDirPath(), QStringLiteral("minecraft.ico"));
+    std::wstring nativeIconPath = QFileInfo::exists(iconPath)
+        ? QDir::toNativeSeparators(iconPath).toStdWString()
+        : std::wstring();
 
-            EnumWindows([](HWND hwnd, LPARAM lParam) -> BOOL {
-                IconContext* context = reinterpret_cast<IconContext*>(lParam);
-                DWORD windowPid = 0;
-                GetWindowThreadProcessId(hwnd, &windowPid);
-                if (windowPid != context->pid || !IsWindowVisible(hwnd))
-                    return TRUE;
-
-                SetWindowTextW(hwnd, L"ATW Client 1.8.9");
-                if (context->largeIcon && context->smallIcon) {
-                    SendMessageW(hwnd, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(context->largeIcon));
-                    SendMessageW(hwnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(context->smallIcon));
-                    SetClassLongPtrW(hwnd, GCLP_HICON, reinterpret_cast<LONG_PTR>(context->largeIcon));
-                    SetClassLongPtrW(hwnd, GCLP_HICONSM, reinterpret_cast<LONG_PTR>(context->smallIcon));
-                }
-                return FALSE;
-            }, reinterpret_cast<LPARAM>(&context));
-        });
+    auto context = std::make_shared<MinecraftWindowBrandingContext>();
+    context->pid = static_cast<DWORD>(pid);
+    if (!nativeIconPath.empty()) {
+        context->largeIcon = static_cast<HICON>(LoadImageW(nullptr, nativeIconPath.c_str(), IMAGE_ICON, 32, 32, LR_LOADFROMFILE));
+        context->smallIcon = static_cast<HICON>(LoadImageW(nullptr, nativeIconPath.c_str(), IMAGE_ICON, 16, 16, LR_LOADFROMFILE));
     }
+
+    applyMinecraftWindowBranding(context);
+
+    QTimer* timer = new QTimer(qApp);
+    timer->setInterval(1000);
+    timer->setTimerType(Qt::CoarseTimer);
+    QObject::connect(timer, &QTimer::timeout, timer, [timer, context]() {
+        if (!isWindowsProcessRunning(context->pid)) {
+            timer->stop();
+            timer->deleteLater();
+            return;
+        }
+
+        applyMinecraftWindowBranding(context);
+    });
+    timer->start();
 #else
     Q_UNUSED(pid);
 #endif

@@ -1,0 +1,13 @@
+{
+  "name": "ATW LevelHead",
+  "modId": "atw-levelhead",
+  "namespace": "mcp-named",
+  "compiledFor": "1.8.9",
+  "entryPoints": [
+    "com.atw.levelhead.LevelHeadInitializer"
+  ],
+  "hooks": [
+    "com.atw.levelhead.hook.ChatCommandCompatibilityHook",
+    "com.atw.levelhead.hook.TabListLevelTagHook"
+  ]
+}

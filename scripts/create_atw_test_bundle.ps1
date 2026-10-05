@@ -105,6 +105,7 @@ if (Test-Path $settingsSource) {
         useWeave = $true
         windowWidth = 640
         windowHeight = 480
+        maxFps = 480
         agents = @()
         helpers = @()
     }
@@ -166,6 +167,7 @@ Set-JsonProperty $settings "customJrePath" "runtime\java\bin\java.exe"
 Set-JsonProperty $settings "useCustomMinecraftDir" $true
 Set-JsonProperty $settings "customMinecraftDir" "data\minecraft\lunarclient"
 Set-JsonProperty $settings "autoLaunchOnOpen" $true
+Set-JsonProperty $settings "maxFps" 480
 Set-JsonProperty $settings "jvmArgs" ""
 Set-JsonProperty $settings "javaOptimizationProfile" "stable-g1"
 Set-JsonProperty $settings "useLargePages" $false

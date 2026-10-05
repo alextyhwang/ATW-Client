@@ -1,0 +1,5 @@
+Manifest-Version: 1.0
+Can-Retransform-Classes: true
+Premain-Class: com.atw.lunarenable.Agent
+Agent-Class: com.atw.lunarenable.Agent
+

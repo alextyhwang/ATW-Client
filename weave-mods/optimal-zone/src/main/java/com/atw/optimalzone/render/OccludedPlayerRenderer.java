@@ -8,32 +8,44 @@ import net.minecraft.client.renderer.GlStateManager;
 import net.minecraft.client.shader.Framebuffer;
 import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.entity.player.EntityPlayer;
-import net.weavemc.loader.api.event.RenderLivingEvent;
+import net.weavemc.api.event.RenderLivingEvent;
 import org.lwjgl.opengl.EXTFramebufferObject;
 import org.lwjgl.opengl.EXTPackedDepthStencil;
 import org.lwjgl.opengl.GL11;
 
 public class OccludedPlayerRenderer {
-    private static final float HIDDEN_ALPHA = 0.30F;
-    private static final float OUTLINE_ALPHA = 0.42F;
+    private static final float HIDDEN_ALPHA = 0.44F;
+    private static final float OUTLINE_ALPHA = 0.72F;
     private static final float INVISIBLE_ALPHA = 0.52F;
     private static final float INVISIBLE_OUTLINE_ALPHA = 0.88F;
-    private static final float OUTLINE_SCALE = 1.045F;
+    private static final float OUTLINE_SCALE = 1.07F;
     private static final float MODEL_SCALE = 0.0625F;
     private static final float NORMAL_SCALE = 1.0F;
+    private static final float CHAMS_POLYGON_OFFSET_FACTOR = 1.0F;
+    private static final float CHAMS_POLYGON_OFFSET_UNITS = -1100000.0F;
     private static final int FILL_STENCIL_REF = 1;
     private static final int OUTLINE_STENCIL_REF = 2;
 
     private final OptimalZoneMod mod;
     private boolean renderingOverlayPass;
+    private EntityPlayer texturedChamsPlayer;
+    private boolean texturedChamsUsesStencil;
+    private boolean polygonOffsetWasEnabled;
+    private float previousPolygonOffsetFactor;
+    private float previousPolygonOffsetUnits;
+    private boolean previousDepthMask;
 
     public OccludedPlayerRenderer(OptimalZoneMod mod) {
         this.mod = mod;
     }
 
-    public void render(RenderLivingEvent.Pre event) {
+    public void renderPre(RenderLivingEvent.Pre event) {
         if (renderingOverlayPass) {
             return;
+        }
+
+        if (texturedChamsPlayer != null && texturedChamsPlayer != event.getEntity()) {
+            cleanupTexturedChamsPass();
         }
 
         EntityLivingBase entity = event.getEntity();
@@ -46,19 +58,91 @@ public class OccludedPlayerRenderer {
             return;
         }
 
-        boolean invisible = player.isInvisible();
-        if (invisible ? !mod.shouldRenderInvisOverlay() : !mod.shouldRenderChams()) {
-            return;
-        }
-
         if (!OverlayPlayerClassifier.shouldTreatAsRealPlayer(player)) {
             return;
         }
 
-        drawPlayerSilhouette(event, player, invisible);
+        boolean invisible = player.isInvisible();
+        if (invisible) {
+            if (mod.shouldRenderInvisOverlay()) {
+                drawPlayerSilhouette(event, player, true);
+            }
+            return;
+        }
+
+        if (!mod.shouldRenderChams()) {
+            return;
+        }
+
+        beginTexturedChamsPass(event, player);
     }
 
-    private void drawPlayerSilhouette(RenderLivingEvent.Pre event, EntityPlayer player, boolean invisible) {
+    public void renderPost(RenderLivingEvent.Post event) {
+        if (renderingOverlayPass || texturedChamsPlayer == null || texturedChamsPlayer != event.getEntity()) {
+            return;
+        }
+
+        EntityPlayer player = texturedChamsPlayer;
+        boolean usesStencil = texturedChamsUsesStencil;
+        endTexturedChamsState();
+
+        renderingOverlayPass = true;
+        mod.setRenderingOccludedPlayerOverlay(true);
+        RenderStateSnapshot previousState = RenderStateSnapshot.capture();
+        try {
+            OverlayColorResolver.Color color = OverlayColorResolver.colorFor(player);
+            if (usesStencil) {
+                drawStencilSilhouette(event, player, color, HIDDEN_ALPHA, OUTLINE_ALPHA);
+            } else {
+                drawDirectSilhouette(event, player, color, GL11.GL_GREATER, HIDDEN_ALPHA, OUTLINE_ALPHA);
+            }
+        } finally {
+            if (usesStencil) {
+                GL11.glStencilMask(0xFF);
+                GL11.glClear(GL11.GL_STENCIL_BUFFER_BIT);
+                GL11.glDisable(GL11.GL_STENCIL_TEST);
+            }
+            previousState.restore();
+            GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+            mod.setRenderingOccludedPlayerOverlay(false);
+            renderingOverlayPass = false;
+            clearTexturedChamsTracking();
+        }
+    }
+
+    private void beginTexturedChamsPass(RenderLivingEvent.Pre event, EntityPlayer player) {
+        renderingOverlayPass = true;
+        mod.setRenderingOccludedPlayerOverlay(true);
+        RenderStateSnapshot previousState = RenderStateSnapshot.capture();
+        boolean usesStencil = false;
+        try {
+            usesStencil = prepareStencilBuffer();
+            if (usesStencil) {
+                writeSilhouetteStencil(event, player, GL11.GL_GREATER);
+            }
+        } finally {
+            previousState.restore();
+            GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+            mod.setRenderingOccludedPlayerOverlay(false);
+            renderingOverlayPass = false;
+        }
+
+        texturedChamsPlayer = player;
+        texturedChamsUsesStencil = usesStencil;
+        polygonOffsetWasEnabled = GL11.glIsEnabled(GL11.GL_POLYGON_OFFSET_FILL);
+        previousPolygonOffsetFactor = GL11.glGetFloat(GL11.GL_POLYGON_OFFSET_FACTOR);
+        previousPolygonOffsetUnits = GL11.glGetFloat(GL11.GL_POLYGON_OFFSET_UNITS);
+        previousDepthMask = GL11.glGetBoolean(GL11.GL_DEPTH_WRITEMASK);
+
+        if (!usesStencil) {
+            GlStateManager.depthMask(false);
+        }
+
+        GL11.glEnable(GL11.GL_POLYGON_OFFSET_FILL);
+        GL11.glPolygonOffset(CHAMS_POLYGON_OFFSET_FACTOR, CHAMS_POLYGON_OFFSET_UNITS);
+    }
+
+    private void drawPlayerSilhouette(RenderLivingEvent event, EntityPlayer player, boolean invisible) {
         renderingOverlayPass = true;
         mod.setRenderingOccludedPlayerOverlay(true);
         RenderStateSnapshot previousState = RenderStateSnapshot.capture();
@@ -70,7 +154,8 @@ public class OccludedPlayerRenderer {
             float fillAlpha = invisible ? INVISIBLE_ALPHA : HIDDEN_ALPHA;
             float outlineAlpha = invisible ? INVISIBLE_OUTLINE_ALPHA : OUTLINE_ALPHA;
             if (prepareStencilBuffer()) {
-                drawFlatSilhouette(event, player, color, maskDepthFunc, fillAlpha, outlineAlpha);
+                writeSilhouetteStencil(event, player, maskDepthFunc);
+                drawStencilSilhouette(event, player, color, fillAlpha, outlineAlpha);
             } else {
                 drawDirectSilhouette(event, player, color, maskDepthFunc, fillAlpha, outlineAlpha);
             }
@@ -82,9 +167,7 @@ public class OccludedPlayerRenderer {
         }
     }
 
-    private void drawFlatSilhouette(RenderLivingEvent.Pre event, EntityPlayer player, OverlayColorResolver.Color color,
-                                    int maskDepthFunc, float fillAlpha, float outlineAlpha) {
-        OverlayColorResolver.Color outlineColor = color.darker();
+    private void writeSilhouetteStencil(RenderLivingEvent event, EntityPlayer player, int maskDepthFunc) {
         GL11.glEnable(GL11.GL_STENCIL_TEST);
         GL11.glClearStencil(0);
         GL11.glClear(GL11.GL_STENCIL_BUFFER_BIT);
@@ -94,12 +177,17 @@ public class OccludedPlayerRenderer {
         GL11.glStencilOp(GL11.GL_KEEP, GL11.GL_KEEP, GL11.GL_REPLACE);
         GlStateManager.colorMask(false, false, false, false);
         GlStateManager.depthFunc(maskDepthFunc);
-        setupHiddenModelState(false, color, fillAlpha);
+        setupHiddenModelState(false, OverlayColorResolver.fallback(), 1.0F);
         renderBasePlayerModelPass(event, player, OUTLINE_SCALE);
 
         GL11.glStencilFunc(GL11.GL_ALWAYS, FILL_STENCIL_REF, 0xFF);
         renderBasePlayerModelPass(event, player, NORMAL_SCALE);
+    }
 
+    private void drawStencilSilhouette(RenderLivingEvent event, EntityPlayer player, OverlayColorResolver.Color color,
+                                       float fillAlpha, float outlineAlpha) {
+        OverlayColorResolver.Color outlineColor = color.darker();
+        GL11.glEnable(GL11.GL_STENCIL_TEST);
         GlStateManager.colorMask(true, true, true, true);
         GL11.glStencilFunc(GL11.GL_EQUAL, OUTLINE_STENCIL_REF, 0xFF);
         GL11.glStencilOp(GL11.GL_KEEP, GL11.GL_KEEP, GL11.GL_ZERO);
@@ -119,7 +207,7 @@ public class OccludedPlayerRenderer {
         GL11.glDisable(GL11.GL_STENCIL_TEST);
     }
 
-    private void drawDirectSilhouette(RenderLivingEvent.Pre event, EntityPlayer player, OverlayColorResolver.Color color,
+    private void drawDirectSilhouette(RenderLivingEvent event, EntityPlayer player, OverlayColorResolver.Color color,
                                       int depthFunc, float fillAlpha, float outlineAlpha) {
         GlStateManager.depthFunc(depthFunc);
         setupHiddenModelState(true, color.darker(), outlineAlpha);
@@ -145,7 +233,7 @@ public class OccludedPlayerRenderer {
         }
     }
 
-    private void renderBasePlayerModelPass(RenderLivingEvent.Pre event, EntityPlayer player, float renderScale) {
+    private void renderBasePlayerModelPass(RenderLivingEvent event, EntityPlayer player, float renderScale) {
         GlStateManager.pushMatrix();
         try {
             renderBasePlayerModel(event, player, renderScale);
@@ -226,7 +314,7 @@ public class OccludedPlayerRenderer {
         );
     }
 
-    private void renderBasePlayerModel(RenderLivingEvent.Pre event, EntityPlayer player, float renderScale) {
+    private void renderBasePlayerModel(RenderLivingEvent event, EntityPlayer player, float renderScale) {
         float partialTicks = event.getPartialTicks();
         float bodyYaw = event.getRenderer().interpolateRotation(player.prevRenderYawOffset, player.renderYawOffset, partialTicks);
         float headYaw = event.getRenderer().interpolateRotation(player.prevRotationYawHead, player.rotationYawHead, partialTicks);
@@ -261,6 +349,37 @@ public class OccludedPlayerRenderer {
         model.setRotationAngles(limbSwing, limbSwingAmount, ageInTicks, netHeadYaw, headPitch, MODEL_SCALE, player);
         model.render(player, limbSwing, limbSwingAmount, ageInTicks, netHeadYaw, headPitch, MODEL_SCALE);
         GlStateManager.disableRescaleNormal();
+    }
+
+    private void cleanupTexturedChamsPass() {
+        endTexturedChamsState();
+        if (texturedChamsUsesStencil) {
+            GL11.glStencilMask(0xFF);
+            GL11.glClear(GL11.GL_STENCIL_BUFFER_BIT);
+            GL11.glDisable(GL11.GL_STENCIL_TEST);
+        }
+        clearTexturedChamsTracking();
+    }
+
+    private void endTexturedChamsState() {
+        GL11.glPolygonOffset(previousPolygonOffsetFactor, previousPolygonOffsetUnits);
+        if (polygonOffsetWasEnabled) {
+            GL11.glEnable(GL11.GL_POLYGON_OFFSET_FILL);
+        } else {
+            GL11.glDisable(GL11.GL_POLYGON_OFFSET_FILL);
+        }
+        if (!texturedChamsUsesStencil) {
+            GlStateManager.depthMask(previousDepthMask);
+        }
+    }
+
+    private void clearTexturedChamsTracking() {
+        texturedChamsPlayer = null;
+        texturedChamsUsesStencil = false;
+        polygonOffsetWasEnabled = false;
+        previousPolygonOffsetFactor = 0.0F;
+        previousPolygonOffsetUnits = 0.0F;
+        previousDepthMask = true;
     }
 
     private static class RenderStateSnapshot {

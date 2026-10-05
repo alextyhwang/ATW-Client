@@ -2,7 +2,7 @@ package com.atw.optimalzone.command;
 
 import com.atw.optimalzone.OptimalZoneMod;
 import net.minecraft.util.EnumChatFormatting;
-import net.weavemc.loader.api.command.Command;
+import net.weavemc.api.command.Command;
 import org.jetbrains.annotations.NotNull;
 
 public class OverlayCommand extends Command {
@@ -16,13 +16,14 @@ public class OverlayCommand extends Command {
     }
 
     @Override
-    public void handle(@NotNull String[] args) {
-        if (args.length == 0) {
+    public void execute(@NotNull String[] args) {
+        // Weave 1.x includes the command name at index 0.
+        if (args.length <= 1) {
             run(defaultAction);
             return;
         }
 
-        String action = args[0].toLowerCase();
+        String action = args[1].toLowerCase();
         if ("toggle".equals(action) || "master".equals(action)) {
             mod.toggle();
         } else if ("optimal".equals(action) || "optimalzone".equals(action) || "zone".equals(action)) {
@@ -39,14 +40,16 @@ public class OverlayCommand extends Command {
             mod.toggleMinimapTerrain();
         } else if ("perf".equals(action) || "performance".equals(action) || "mapperf".equals(action)) {
             mod.sendMinimapPerformance();
-        } else if ("invis".equals(action) || "invisoverlay".equals(action) || "invisible".equals(action) || "footsteps".equals(action)) {
+        } else if ("perfreset".equals(action) || "resetperf".equals(action) || "mapperfreset".equals(action)) {
+            mod.resetMinimapPerformance();
+        } else if ("invis".equals(action) || "invisoverlay".equals(action) || "invisible".equals(action)) {
             mod.toggleInvisOverlay();
         } else if ("debugtarget".equals(action) || "debugentity".equals(action) || "targetdebug".equals(action) || "entitydebug".equals(action)) {
             mod.debugTargetEntity();
         } else if ("status".equals(action)) {
             mod.sendStatus();
         } else {
-            mod.sendChat(EnumChatFormatting.YELLOW + "Usage: /atwoverlay [toggle|optimalzone|projectiles|chams|minimap|bigmap|terrain|perf|invis|debugtarget|status]");
+            mod.sendChat(EnumChatFormatting.YELLOW + "Usage: /atwoverlay [toggle|optimalzone|projectiles|chams|minimap|bigmap|terrain|perf|perfreset|invis|debugtarget|status]");
         }
     }
 

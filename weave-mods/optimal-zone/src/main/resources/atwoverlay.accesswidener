@@ -1,0 +1,18 @@
+accessWidener v2 mcp-named
+
+# Match vanilla renderer transforms without invoking doRender or its layers again.
+accessible method net/minecraft/client/renderer/entity/RendererLivingEntity interpolateRotation (FFF)F
+accessible method net/minecraft/client/renderer/entity/RendererLivingEntity handleRotationFloat (Lnet/minecraft/entity/EntityLivingBase;F)F
+accessible method net/minecraft/client/renderer/entity/RendererLivingEntity getSwingProgress (Lnet/minecraft/entity/EntityLivingBase;F)F
+accessible method net/minecraft/client/renderer/entity/RendererLivingEntity renderLivingAt (Lnet/minecraft/entity/EntityLivingBase;DDD)V
+accessible method net/minecraft/client/renderer/entity/RendererLivingEntity rotateCorpse (Lnet/minecraft/entity/EntityLivingBase;FFF)V
+accessible method net/minecraft/client/renderer/entity/RendererLivingEntity preRenderCallback (Lnet/minecraft/entity/EntityLivingBase;F)V
+
+# Keep the original HUD interpolation fallback and scoreboard color resolution.
+accessible field net/minecraft/client/Minecraft timer Lnet/minecraft/util/Timer;
+accessible field net/minecraft/client/gui/FontRenderer colorCode [I
+
+# Retain loaded-chunk checks and the existing dirty-rectangle upload path.
+accessible method net/minecraft/world/World isChunkLoaded (IIZ)Z
+accessible method net/minecraft/client/renderer/texture/TextureUtil bindTexture (I)V
+accessible method net/minecraft/client/renderer/texture/TextureUtil uploadTextureSub (I[IIIIIZZZ)V

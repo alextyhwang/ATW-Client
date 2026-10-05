@@ -1,8 +1,8 @@
 # Weave Mod Notes
 
-This client repo treats `weave-mods/` as an ignored local workspace. Individual
-mods are versioned in their own repositories, but local working copies may live
-at:
+This client repo versions the six canonical mod source projects in `weave-mods/`.
+Generated jars, runtime payloads and private build caches remain ignored.
+LevelHead sources live at:
 
 ```text
 weave-mods/atw-levelhead
@@ -14,21 +14,22 @@ ATW's Overlay may live locally at:
 weave-mods/optimal-zone
 ```
 
-The current target is Lunar Client Minecraft `1.8.9` with the bundled old
-Weave Loader, not the latest Weave ecosystem.
+The current target is Lunar Client Minecraft `1.8.9` with the pinned Weave Loader 1.4.1 and Java 17.
 
 ## Version Constraints
 
-- Target loader: Weave Loader `v0.2.6`.
+- Target loader: Weave Loader `1.4.1`.
 - Target Minecraft: `1.8.9`.
-- Compile against the local loader jar:
+- Compile against the pinned published API artifacts:
 
 ```text
-java/agents/WeaveLoader.jar
+net.weavemc.api:api:1.4.1
+net.weavemc.api:api-v1_8:1.4.1
 ```
 
-Do not casually upgrade Weave, Minecraft, mappings, Gradle plugins, or switch
-to newer Weave APIs. The working mod set depends on this older loader shape.
+Keep Minecraft fixed at 1.8.9. Loader, mappings and API changes require rebuilding
+and validating the complete mod set; legacy 0.2.6 jars are incompatible with this
+branch's Weave 1.4.1 runtime.
 
 ## Known Working Example Mods
 
@@ -60,7 +61,7 @@ What happened here:
   was not enough for the hotkey path.
 
 The fix in `ATWLevelHead` subscribes to `PacketEvent.Send`, detects outgoing
-`C01PacketChatMessage`, creates a `ChatSentEvent`, and cancels the packet if
+`C01PacketChatMessage`, creates a `ChatEvent.Sent`, and cancels the packet if
 Weave command handling cancels the event. This lets existing `CommandBus`
 commands like `/togglechams` and `/history` work from hotkeys without sending
 them to the server.
@@ -68,7 +69,7 @@ them to the server.
 When touching command handling, preserve this behavior:
 
 ```text
-PacketEvent.Send -> C01PacketChatMessage -> ChatSentEvent -> cancel packet if handled
+PacketEvent.Send -> C01PacketChatMessage -> ChatEvent.Sent -> cancel packet if handled
 ```
 
 Also preserve the compatibility hook in:
@@ -85,7 +86,7 @@ hook hit that method and caused a JVM `VerifyError`.
 The mod entrypoint is:
 
 ```text
-com.atw.levelhead.ATWLevelHead
+com.atw.levelhead.LevelHeadInitializer
 ```
 
 Resource metadata:
@@ -97,13 +98,13 @@ weave-mods/atw-levelhead/src/main/resources/weave.mod.json
 Settings:
 
 ```text
-%USERPROFILE%\.weave\atw-levelhead.json
+<ATW executable folder>/data/home/.weave/atw-levelhead.json
 ```
 
 Disk cache:
 
 ```text
-%USERPROFILE%\.weave\atw-levelhead-cache.json
+<ATW executable folder>/data/home/.weave/atw-levelhead-cache.json
 ```
 
 The cache is mode-specific:
@@ -116,32 +117,21 @@ Sk1er/Hypixel API requests when the same player data is already fresh.
 
 ## Build And Install
 
-Build from the mod folder:
+Build and install from the repository root using PowerShell 7 and a Java 17 JDK:
 
 ```powershell
-cd weave-mods\atw-levelhead
-.\gradlew.bat build
+./scripts/build_mods.ps1 -Modules atw-levelhead -Install
 ```
 
-Install for the active Lunar/Weave setup:
-
-```powershell
-Copy-Item .\build\libs\ATWLevelHead-0.1.0.jar $env:USERPROFILE\.weave\mods\ATWLevelHead-0.1.0.jar -Force
-```
+Installation refreshes `weave-mods/runtime` and `build/data/home/.weave/mods`,
+backs up replaced jars and preserves disabled states.
 
 Restart Minecraft after installing. Weave mods are loaded at game startup.
 
-Build ATW's Overlay from its mod folder:
+Build and install ATW's Overlay from the repository root:
 
 ```powershell
-cd weave-mods\optimal-zone
-.\gradlew.bat build
-```
-
-Install for the active ATW package-mode build:
-
-```powershell
-Copy-Item .\build\libs\ATWOverlay-0.1.0.jar ..\..\build\weave-mods\ATWOverlay-0.1.0.jar -Force
+./scripts/build_mods.ps1 -Modules optimal-zone -Install
 ```
 
 ATW's Overlay defaults to enabled on game startup. Use `/atwoverlay status`
@@ -171,10 +161,13 @@ Read that file before changing the overlay renderer. Important current behavior:
 - Projectile trajectories are local-only bow and ender pearl overlays. They do
   not aim, rotate the player, select targets, or send packets. The path uses a
   close-to-far color gradient so range along the arc is readable.
-- Chams is not a box ESP. It only draws occluded player fragments.
-- Visible players are left to Minecraft's normal renderer.
-- The hidden-player overlay draws only the base player model, not armor,
-  nametags, or render layers.
+- Chams is not a box ESP. It reveals Minecraft's normal skin, armor, and
+  held-item layers through walls using polygon offset, then marks only the
+  occluded player fragments with the team-colored overlay.
+- Visible player fragments remain visually normal.
+- The additional hidden-player overlay draws only the base player model. Armor,
+  nametags, held items, and render layers come from Minecraft's one normal
+  player render and are not invoked a second time.
 - Hidden silhouettes use stencil masking so 3D face overlap does not darken the
   fill.
 - Hidden silhouettes use the player's scoreboard/team nametag color when
@@ -191,18 +184,18 @@ Read that file before changing the overlay renderer. Important current behavior:
   real player and NPC dumps before adding minimap NPC filters.
 
 When modifying `OccludedPlayerRenderer`, avoid calling the full living
-`doRender` path. That previously brought armor/layers and nametag render state
-into the overlay pass.
+`doRender` path a second time. That previously duplicated armor/layers and
+brought nametag render state into the overlay pass. Keep textured chams around
+Minecraft's existing render and keep the team overlay base-model-only.
 
 ## Logs To Check
 
 Useful logs on this machine:
 
 ```text
-%USERPROFILE%\.lunarclient\logs\launcher\renderer.log
-%USERPROFILE%\.lunarclient\logs\launcher\main.log
-%USERPROFILE%\.lunarclient\offline\multiver\logs\latest.log
-%USERPROFILE%\.lunarclient\offline\multiver\.ichor\genesis.log
+<ATW executable folder>/logs/launcher/renderer.log
+<ATW executable folder>/logs/launcher/main.log
+<ATW executable folder>/data/home/.lunarclient/offline/multiver/.ichor/genesis.log
 ```
 
 Signs command handling is working:
@@ -222,3 +215,31 @@ the outgoing packet bridge before changing the existing command classes.
 - Keep changes local to `weave-mods/atw-levelhead` when working on this mod.
 - If Minecraft is running, build/install changes require a restart to take
   effect.
+
+## Weave 1.4.1 integration contract
+
+LevelHead is the sole packet-to-chat bridge. The compatibility hook marks packets
+created by EntityPlayerSP.sendChatMessage and emits no event; the built-in API
+owns manual chat events. GuiScreen and clipboard methods stay unmodified.
+LevelHead and RawInput construct game-dependent logic in init(), through small
+loader entrypoints. Overlay also has a game-free loader entrypoint.
+The tab formatter hook remains independent of API player-list events.
+Build the six canonical modules explicitly and install their verified outputs before
+CMake copies the prebuilt runtime set. Runtime dependencies and the API Maven
+repository are private to the package; weaveOffline defaults to true.
+
+From a PowerShell 7 session at the repository root:
+
+```powershell
+./scripts/build_mods.ps1 -ValidateOnly
+./scripts/build_mods.ps1 -Install
+```
+
+The script builds LevelHead, Rebrand, RawInput, NoHitDelay, Overlay and Render
+Boost from `weave-mods`, with a Java 17 JDK in `runtime/java` or supplied through
+`-JavaHome`. It needs no `upgrade-work` sources or prebuilt staging artifacts.
+Gradle downloads its public dependencies on the first build; `-Offline` requires
+a populated cache. `-Modules optimal-zone` selects a single module. Installation
+backs up replaced jars and retains each existing `.disabled` state independently
+in `weave-mods/runtime` and `build/data/home/.weave/mods`. Render Boost's experimental
+optimizations default OFF; its installed jar does not imply measured improvement.

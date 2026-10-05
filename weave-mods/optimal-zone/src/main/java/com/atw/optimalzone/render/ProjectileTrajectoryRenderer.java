@@ -15,7 +15,7 @@ import net.minecraft.util.AxisAlignedBB;
 import net.minecraft.util.MathHelper;
 import net.minecraft.util.MovingObjectPosition;
 import net.minecraft.util.Vec3;
-import net.weavemc.loader.api.event.RenderWorldEvent;
+import net.weavemc.api.event.RenderWorldEvent;
 import org.lwjgl.opengl.GL11;
 
 import java.util.ArrayList;

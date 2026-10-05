@@ -1,0 +1,11 @@
+.gradle/
+.gradle-user-home/
+.build-home/
+build/
+*.log
+research/classes/
+research/*.jar
+research/*bytecode.txt
+research/*.json
+research/*.pom
+research/*.kt

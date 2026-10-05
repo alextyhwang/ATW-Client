@@ -32,7 +32,7 @@ private:
     static QString resolveJavaExecutable(const QString& path);
     static QString findJavaExecutable(const QString& gameVersion);
     static QStringList sanitizeJvmArgs(const QStringList& args, QStringList* removedArgs = nullptr);
-    static void sanitizeMinecraftOptions(const QString& gameDir);
+    static void sanitizeMinecraftOptions(const QString& gameDir, int maxFps);
     static void HelperLaunch(const QString& helper);
     static bool isPidRunning(qint64 pid);
     static void scheduleMinecraftWindowIcon(qint64 pid);

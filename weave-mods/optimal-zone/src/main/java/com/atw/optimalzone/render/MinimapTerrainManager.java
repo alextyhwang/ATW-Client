@@ -26,22 +26,42 @@ final class MinimapTerrainManager {
     private static final int EXPANDED_VISIBLE_HALF_SIZE = TEXTURE_HALF_SIZE - 2;
     private static final int EXPANDED_MAP_SEGMENTS = 128;
     private static final double NORMAL_BLOCKS_PER_PIXEL = 1.5D;
-    private static final double EXPANDED_BLOCKS_PER_PIXEL = 2.25D;
+    private static final double EXPANDED_BLOCKS_PER_PIXEL = 2.0D;
     private static final int NEAR_REFRESH_RADIUS = 24;
     private static final int INITIAL_CENTER_RADIUS = 16;
     private static final long SAMPLE_BUDGET_NANOS = 500000L;
     private static final int MAX_SAMPLES_PER_TICK = 768;
+    private static final long BACKGROUND_PREWARM_BUDGET_NANOS = 125000L;
+    private static final long BACKGROUND_PREWARM_ACTIVE_HEADROOM_NANOS = 350000L;
+    private static final int BACKGROUND_PREWARM_MAX_SAMPLES_PER_TICK = 192;
+    private static final int IDLE_LIGHT_SAMPLE_LIMIT = 256;
+    private static final int IDLE_MEDIUM_SAMPLE_LIMIT = 128;
+    private static final int IDLE_DEEP_SAMPLE_LIMIT = 64;
+    private static final int IDLE_LIGHT_TICKS = 20;
+    private static final int IDLE_MEDIUM_TICKS = 80;
+    private static final int IDLE_DEEP_TICKS = 200;
     private static final int NEAR_REFRESH_DIVISOR = 5;
-    private static final int BRIDGE_SCAN_ABOVE = 4;
-    private static final int BRIDGE_SCAN_BELOW = 8;
     private static final int HEIGHTMAP_FALLBACK_DEPTH = 4;
     private static final long PERFORMANCE_LOG_INTERVAL_NANOS = 10000000000L;
     private static final int VOID_COLOR = 0xF0101018;
     private static final int UNLOADED_COLOR = 0xF0181820;
     private static final int UNKNOWN_BLOCK_COLOR = 0xF05A5A5A;
+    private static final byte TERRAIN_INVALID = 0;
+    private static final byte TERRAIN_SOLID = 1;
+    private static final byte TERRAIN_VOID = 2;
+    private static final byte TERRAIN_UNLOADED = 3;
+    private static final float RELIEF_SHADE_PER_BLOCK = 0.035F;
+    private static final float RELIEF_SHADE_LIMIT = 0.16F;
+    private static final int COLUMN_UNLOADED = 0;
+    private static final int COLUMN_EMPTY = 1;
+    private static final int COLUMN_SOLID = 2;
+    private static final long COLUMN_UNLOADED_SAMPLE = packColumnSample(COLUMN_UNLOADED, -1, 0);
+    private static final long COLUMN_EMPTY_SAMPLE = packColumnSample(COLUMN_EMPTY, -1, 0);
 
     private final TerrainCache normalCache = new TerrainCache(NORMAL_BLOCKS_PER_PIXEL, NORMAL_VISIBLE_HALF_SIZE);
     private final TerrainCache expandedCache = new TerrainCache(EXPANDED_BLOCKS_PER_PIXEL, EXPANDED_VISIBLE_HALF_SIZE);
+    private final UploadResult uploadResult = new UploadResult();
+    private final UploadResult prewarmUploadResult = new UploadResult();
 
     private boolean terrainEnabled = true;
     private long performanceWindowStartNanos;
@@ -49,13 +69,38 @@ final class MinimapTerrainManager {
     private long hudRenderMaxNanos;
     private long sampleTickTotalNanos;
     private long sampleTickMaxNanos;
+    private long prepareTickTotalNanos;
+    private long prepareTickMaxNanos;
+    private long terrainTickTotalNanos;
+    private long terrainTickMaxNanos;
     private long uploadTickTotalNanos;
     private long uploadTickMaxNanos;
+    private long prewarmTickTotalNanos;
+    private long prewarmTickMaxNanos;
+    private long prewarmSampleTickTotalNanos;
+    private long prewarmSampleTickMaxNanos;
+    private long prewarmUploadTickTotalNanos;
+    private long prewarmUploadTickMaxNanos;
     private long sampledPixels;
+    private long changedSamples;
+    private long sampleLimitTotal;
     private long uploadedPixels;
+    private long uploadRectangles;
+    private long fullUploads;
+    private long prewarmSampledPixels;
+    private long prewarmUploadedPixels;
+    private long prewarmUploadRectangles;
+    private long prewarmFullUploads;
+    private int lastSampleLimit;
+    private int lastIdleTier;
+    private int maxIdleTier;
+    private int lastPrewarmSampleLimit;
     private int hudFrameCount;
     private int sampleTickCount;
     private int uploadTickCount;
+    private int terrainTickCount;
+    private int prewarmTickCount;
+    private int prewarmUploadTickCount;
 
     boolean isTerrainEnabled() {
         return terrainEnabled;
@@ -71,36 +116,53 @@ final class MinimapTerrainManager {
         expandedCache.reset();
     }
 
-    void tick(World world, double localX, double localY, double localZ, boolean expandedActive) {
+    void tick(World world, double localX, double ignoredLocalY, double localZ, boolean expandedActive) {
+        tick(world, localX, ignoredLocalY, localZ, expandedActive, false);
+    }
+
+    void tick(World world, double localX, double ignoredLocalY, double localZ, boolean expandedActive, boolean prewarmExpanded) {
         if (!terrainEnabled || world == null) {
             return;
         }
 
+        long terrainTickStartNanos = System.nanoTime();
         TerrainCache activeCache = expandedActive ? expandedCache : normalCache;
-        TerrainCache inactiveCache = expandedActive ? normalCache : expandedCache;
-        activeCache.prepare(world, localX, localY, localZ);
-        if (inactiveCache.isStarted()) {
-            inactiveCache.prepare(world, localX, localY, localZ);
-        }
+        long prepareStartNanos = terrainTickStartNanos;
+        activeCache.prepare(world, localX, localZ);
+        long prepareEndNanos = System.nanoTime();
 
-        long sampleStartNanos = System.nanoTime();
+        long sampleStartNanos = prepareEndNanos;
         long sampleDeadlineNanos = sampleStartNanos + SAMPLE_BUDGET_NANOS;
-        int samples = activeCache.sample(world, sampleDeadlineNanos, MAX_SAMPLES_PER_TICK);
-        int remainingSamples = MAX_SAMPLES_PER_TICK - samples;
-        if (remainingSamples > 0 && inactiveCache.isStarted() && System.nanoTime() < sampleDeadlineNanos) {
-            samples += inactiveCache.sample(world, sampleDeadlineNanos, remainingSamples);
-        }
+        int sampleLimit = activeCache.sampleLimit(MAX_SAMPLES_PER_TICK);
+        long sampleResult = activeCache.sample(world, sampleDeadlineNanos, sampleLimit);
+        int samples = sampleResultSamples(sampleResult);
+        int changed = sampleResultChanges(sampleResult);
         long sampleEndNanos = System.nanoTime();
 
         long uploadStartNanos = sampleEndNanos;
-        int uploaded = activeCache.flushDirtyTexture();
-        if (inactiveCache.isStarted()) {
-            uploaded += inactiveCache.flushDirtyTexture();
-        }
+        uploadResult.reset();
+        activeCache.flushDirtyTexture(uploadResult);
         long uploadEndNanos = System.nanoTime();
+        activeCache.finishTick(changed, uploadResult.uploadedPixels);
+        long tickEndNanos = uploadEndNanos;
 
-        recordTerrainTick(sampleEndNanos - sampleStartNanos, uploadEndNanos - uploadStartNanos, samples, uploaded);
-        maybeLogPerformance(uploadEndNanos);
+        recordTerrainTick(
+                prepareEndNanos - prepareStartNanos,
+                sampleEndNanos - sampleStartNanos,
+                uploadEndNanos - uploadStartNanos,
+                uploadEndNanos - terrainTickStartNanos,
+                samples,
+                changed,
+                sampleLimit,
+                activeCache.idleBackoffTier(),
+                uploadResult
+        );
+        if (prewarmExpanded
+                && !expandedActive
+                && uploadEndNanos - terrainTickStartNanos <= BACKGROUND_PREWARM_ACTIVE_HEADROOM_NANOS) {
+            tickEndNanos = prewarmExpandedCache(world, localX, localZ);
+        }
+        maybeLogPerformance(tickEndNanos);
     }
 
     void draw(
@@ -111,7 +173,8 @@ final class MinimapTerrainManager {
             double localX,
             double localZ,
             double yawSin,
-            double yawCos
+            double yawCos,
+            double displayBlocksPerPixel
     ) {
         if (!terrainEnabled) {
             return;
@@ -126,9 +189,9 @@ final class MinimapTerrainManager {
         GL11.glColor4f(1.0F, 1.0F, 1.0F, 1.0F);
         GL11.glBindTexture(GL11.GL_TEXTURE_2D, cache.texture.getGlTextureId());
         if (expanded) {
-            drawTerrainCircle(cache, centerX, centerY, mapRadius, localX, localZ, yawSin, yawCos);
+            drawTerrainCircle(cache, centerX, centerY, mapRadius, localX, localZ, yawSin, yawCos, displayBlocksPerPixel);
         } else {
-            drawTerrainQuad(cache, centerX, centerY, mapRadius, localX, localZ, yawSin, yawCos);
+            drawTerrainQuad(cache, centerX, centerY, mapRadius, localX, localZ, yawSin, yawCos, displayBlocksPerPixel);
         }
         GL11.glDisable(GL11.GL_TEXTURE_2D);
     }
@@ -146,18 +209,97 @@ final class MinimapTerrainManager {
         return performanceSummary(false);
     }
 
-    private void recordTerrainTick(long sampleNanos, long uploadNanos, int samples, int uploaded) {
+    void resetPerformance() {
+        performanceSummary(true);
+    }
+
+    private void recordTerrainTick(
+            long prepareNanos,
+            long sampleNanos,
+            long uploadNanos,
+            long totalNanos,
+            int samples,
+            int changed,
+            int sampleLimit,
+            int idleTier,
+            UploadResult uploadResult
+    ) {
         long nowNanos = System.nanoTime();
         startPerformanceWindow(nowNanos);
+        terrainTickCount++;
+        terrainTickTotalNanos += totalNanos;
+        terrainTickMaxNanos = Math.max(terrainTickMaxNanos, totalNanos);
+        prepareTickTotalNanos += prepareNanos;
+        prepareTickMaxNanos = Math.max(prepareTickMaxNanos, prepareNanos);
         sampleTickCount++;
         sampleTickTotalNanos += sampleNanos;
         sampleTickMaxNanos = Math.max(sampleTickMaxNanos, sampleNanos);
         sampledPixels += samples;
-        if (uploaded > 0) {
+        changedSamples += changed;
+        sampleLimitTotal += sampleLimit;
+        lastSampleLimit = sampleLimit;
+        lastIdleTier = idleTier;
+        maxIdleTier = Math.max(maxIdleTier, idleTier);
+        if (uploadResult.uploadedPixels > 0) {
             uploadTickCount++;
             uploadTickTotalNanos += uploadNanos;
             uploadTickMaxNanos = Math.max(uploadTickMaxNanos, uploadNanos);
-            uploadedPixels += uploaded;
+            uploadedPixels += uploadResult.uploadedPixels;
+            uploadRectangles += uploadResult.rectangles;
+            fullUploads += uploadResult.fullUploads;
+        }
+    }
+
+    private long prewarmExpandedCache(World world, double localX, double localZ) {
+        long prewarmStartNanos = System.nanoTime();
+        expandedCache.prepare(world, localX, localZ);
+        long prepareEndNanos = System.nanoTime();
+
+        int sampleLimit = expandedCache.sampleLimit(BACKGROUND_PREWARM_MAX_SAMPLES_PER_TICK);
+        long sampleDeadlineNanos = prepareEndNanos + BACKGROUND_PREWARM_BUDGET_NANOS;
+        long sampleResult = expandedCache.sample(world, sampleDeadlineNanos, sampleLimit);
+        int samples = sampleResultSamples(sampleResult);
+        int changed = sampleResultChanges(sampleResult);
+        long sampleEndNanos = System.nanoTime();
+
+        prewarmUploadResult.reset();
+        expandedCache.flushDirtyTexture(prewarmUploadResult);
+        long uploadEndNanos = System.nanoTime();
+        expandedCache.finishTick(changed, prewarmUploadResult.uploadedPixels);
+
+        recordPrewarmTick(
+                sampleEndNanos - prepareEndNanos,
+                uploadEndNanos - sampleEndNanos,
+                uploadEndNanos - prewarmStartNanos,
+                samples,
+                sampleLimit,
+                prewarmUploadResult
+        );
+        return uploadEndNanos;
+    }
+
+    private void recordPrewarmTick(
+            long sampleNanos,
+            long uploadNanos,
+            long totalNanos,
+            int samples,
+            int sampleLimit,
+            UploadResult uploadResult
+    ) {
+        prewarmTickCount++;
+        prewarmTickTotalNanos += totalNanos;
+        prewarmTickMaxNanos = Math.max(prewarmTickMaxNanos, totalNanos);
+        prewarmSampleTickTotalNanos += sampleNanos;
+        prewarmSampleTickMaxNanos = Math.max(prewarmSampleTickMaxNanos, sampleNanos);
+        prewarmSampledPixels += samples;
+        lastPrewarmSampleLimit = sampleLimit;
+        if (uploadResult.uploadedPixels > 0) {
+            prewarmUploadTickCount++;
+            prewarmUploadTickTotalNanos += uploadNanos;
+            prewarmUploadTickMaxNanos = Math.max(prewarmUploadTickMaxNanos, uploadNanos);
+            prewarmUploadedPixels += uploadResult.uploadedPixels;
+            prewarmUploadRectangles += uploadResult.rectangles;
+            prewarmFullUploads += uploadResult.fullUploads;
         }
     }
 
@@ -173,27 +315,60 @@ final class MinimapTerrainManager {
             return;
         }
 
-        OptimalZoneMod.log(performanceSummary(true));
+        OptimalZoneMod.log(performanceSummary(false));
+        performanceWindowStartNanos = nowNanos;
     }
 
     private String performanceSummary(boolean reset) {
         double renderAverageMillis = averageMillis(hudRenderTotalNanos, hudFrameCount);
+        double terrainTickAverageMillis = averageMillis(terrainTickTotalNanos, terrainTickCount);
+        double prepareAverageMillis = averageMillis(prepareTickTotalNanos, terrainTickCount);
         double sampleAverageMillis = averageMillis(sampleTickTotalNanos, sampleTickCount);
+        double sampleLimitAverage = average(sampleLimitTotal, sampleTickCount);
         double uploadAverageMillis = averageMillis(uploadTickTotalNanos, uploadTickCount);
+        double prewarmAverageMillis = averageMillis(prewarmTickTotalNanos, prewarmTickCount);
+        double prewarmSampleAverageMillis = averageMillis(prewarmSampleTickTotalNanos, prewarmTickCount);
+        double prewarmUploadAverageMillis = averageMillis(prewarmUploadTickTotalNanos, prewarmUploadTickCount);
         String summary = String.format(
                 Locale.ROOT,
-                "[Minimap Perf] frames=%d hudAvg=%.3fms hudMax=%.3fms sampleTicks=%d sampleAvg=%.3fms sampleMax=%.3fms uploadTicks=%d uploadAvg=%.3fms uploadMax=%.3fms sampled=%d uploaded=%d",
+                "[Minimap Perf] frames=%d hudAvg=%.3fms hudMax=%.3fms terrainTicks=%d terrainAvg=%.3fms terrainMax=%.3fms prepareAvg=%.3fms prepareMax=%.3fms sampleTicks=%d sampleAvg=%.3fms sampleMax=%.3fms sampleCapAvg=%.1f sampleCapLast=%d idleNow=%d idleMax=%d changed=%d uploadTicks=%d uploadAvg=%.3fms uploadMax=%.3fms uploadRects=%d fullUploads=%d sampled=%d uploaded=%d prewarmTicks=%d prewarmAvg=%.3fms prewarmMax=%.3fms prewarmSampleAvg=%.3fms prewarmSampleMax=%.3fms prewarmCapLast=%d prewarmUploadTicks=%d prewarmUploadAvg=%.3fms prewarmUploadMax=%.3fms prewarmRects=%d prewarmFullUploads=%d prewarmSampled=%d prewarmUploaded=%d expandedWarm=%d",
                 hudFrameCount,
                 renderAverageMillis,
                 nanosToMillis(hudRenderMaxNanos),
+                terrainTickCount,
+                terrainTickAverageMillis,
+                nanosToMillis(terrainTickMaxNanos),
+                prepareAverageMillis,
+                nanosToMillis(prepareTickMaxNanos),
                 sampleTickCount,
                 sampleAverageMillis,
                 nanosToMillis(sampleTickMaxNanos),
+                sampleLimitAverage,
+                lastSampleLimit,
+                lastIdleTier,
+                maxIdleTier,
+                changedSamples,
                 uploadTickCount,
                 uploadAverageMillis,
                 nanosToMillis(uploadTickMaxNanos),
+                uploadRectangles,
+                fullUploads,
                 sampledPixels,
-                uploadedPixels
+                uploadedPixels,
+                prewarmTickCount,
+                prewarmAverageMillis,
+                nanosToMillis(prewarmTickMaxNanos),
+                prewarmSampleAverageMillis,
+                nanosToMillis(prewarmSampleTickMaxNanos),
+                lastPrewarmSampleLimit,
+                prewarmUploadTickCount,
+                prewarmUploadAverageMillis,
+                nanosToMillis(prewarmUploadTickMaxNanos),
+                prewarmUploadRectangles,
+                prewarmFullUploads,
+                prewarmSampledPixels,
+                prewarmUploadedPixels,
+                expandedCache.isWarm() ? 1 : 0
         );
 
         if (reset) {
@@ -202,13 +377,38 @@ final class MinimapTerrainManager {
             hudRenderMaxNanos = 0L;
             sampleTickTotalNanos = 0L;
             sampleTickMaxNanos = 0L;
+            prepareTickTotalNanos = 0L;
+            prepareTickMaxNanos = 0L;
+            terrainTickTotalNanos = 0L;
+            terrainTickMaxNanos = 0L;
             uploadTickTotalNanos = 0L;
             uploadTickMaxNanos = 0L;
+            prewarmTickTotalNanos = 0L;
+            prewarmTickMaxNanos = 0L;
+            prewarmSampleTickTotalNanos = 0L;
+            prewarmSampleTickMaxNanos = 0L;
+            prewarmUploadTickTotalNanos = 0L;
+            prewarmUploadTickMaxNanos = 0L;
             sampledPixels = 0L;
+            changedSamples = 0L;
+            sampleLimitTotal = 0L;
             uploadedPixels = 0L;
+            uploadRectangles = 0L;
+            fullUploads = 0L;
+            prewarmSampledPixels = 0L;
+            prewarmUploadedPixels = 0L;
+            prewarmUploadRectangles = 0L;
+            prewarmFullUploads = 0L;
+            lastSampleLimit = 0;
+            lastIdleTier = 0;
+            maxIdleTier = 0;
+            lastPrewarmSampleLimit = 0;
             hudFrameCount = 0;
             sampleTickCount = 0;
             uploadTickCount = 0;
+            terrainTickCount = 0;
+            prewarmTickCount = 0;
+            prewarmUploadTickCount = 0;
         }
 
         return summary;
@@ -216,6 +416,10 @@ final class MinimapTerrainManager {
 
     private static double averageMillis(long totalNanos, int count) {
         return count == 0 ? 0.0D : nanosToMillis(totalNanos) / count;
+    }
+
+    private static double average(long total, int count) {
+        return count == 0 ? 0.0D : (double) total / (double) count;
     }
 
     private static double nanosToMillis(long nanos) {
@@ -230,7 +434,8 @@ final class MinimapTerrainManager {
             double localX,
             double localZ,
             double yawSin,
-            double yawCos
+            double yawCos,
+            double displayBlocksPerPixel
     ) {
         float left = centerX - mapRadius;
         float top = centerY - mapRadius;
@@ -238,13 +443,13 @@ final class MinimapTerrainManager {
         float bottom = centerY + mapRadius;
 
         GL11.glBegin(GL11.GL_QUADS);
-        setTerrainTexCoord(cache, -mapRadius, mapRadius, localX, localZ, yawSin, yawCos);
+        setTerrainTexCoord(cache, -mapRadius, mapRadius, localX, localZ, yawSin, yawCos, displayBlocksPerPixel);
         GL11.glVertex2f(left, bottom);
-        setTerrainTexCoord(cache, mapRadius, mapRadius, localX, localZ, yawSin, yawCos);
+        setTerrainTexCoord(cache, mapRadius, mapRadius, localX, localZ, yawSin, yawCos, displayBlocksPerPixel);
         GL11.glVertex2f(right, bottom);
-        setTerrainTexCoord(cache, mapRadius, -mapRadius, localX, localZ, yawSin, yawCos);
+        setTerrainTexCoord(cache, mapRadius, -mapRadius, localX, localZ, yawSin, yawCos, displayBlocksPerPixel);
         GL11.glVertex2f(right, top);
-        setTerrainTexCoord(cache, -mapRadius, -mapRadius, localX, localZ, yawSin, yawCos);
+        setTerrainTexCoord(cache, -mapRadius, -mapRadius, localX, localZ, yawSin, yawCos, displayBlocksPerPixel);
         GL11.glVertex2f(left, top);
         GL11.glEnd();
     }
@@ -257,16 +462,17 @@ final class MinimapTerrainManager {
             double localX,
             double localZ,
             double yawSin,
-            double yawCos
+            double yawCos,
+            double displayBlocksPerPixel
     ) {
         GL11.glBegin(GL11.GL_TRIANGLE_FAN);
-        setTerrainTexCoord(cache, 0.0F, 0.0F, localX, localZ, yawSin, yawCos);
+        setTerrainTexCoord(cache, 0.0F, 0.0F, localX, localZ, yawSin, yawCos, displayBlocksPerPixel);
         GL11.glVertex2f(centerX, centerY);
         for (int segment = 0; segment <= EXPANDED_MAP_SEGMENTS; segment++) {
             double angle = Math.PI * 2.0D * segment / EXPANDED_MAP_SEGMENTS;
             float offsetX = (float) Math.cos(angle) * mapRadius;
             float offsetY = (float) Math.sin(angle) * mapRadius;
-            setTerrainTexCoord(cache, offsetX, offsetY, localX, localZ, yawSin, yawCos);
+            setTerrainTexCoord(cache, offsetX, offsetY, localX, localZ, yawSin, yawCos, displayBlocksPerPixel);
             GL11.glVertex2f(centerX + offsetX, centerY + offsetY);
         }
         GL11.glEnd();
@@ -279,18 +485,22 @@ final class MinimapTerrainManager {
             double localX,
             double localZ,
             double yawSin,
-            double yawCos
+            double yawCos,
+            double displayBlocksPerPixel
     ) {
         double localSampleX = localX / cache.blocksPerPixel;
         double localSampleZ = localZ / cache.blocksPerPixel;
+        double texturePixelsPerMapPixel = displayBlocksPerPixel / cache.blocksPerPixel;
+        double samplePixelX = mapPixelX * texturePixelsPerMapPixel;
+        double samplePixelY = mapPixelY * texturePixelsPerMapPixel;
         double textureX = cache.physicalBaseX
                 + TEXTURE_HALF_SIZE
                 + localSampleX - cache.centerSampleX
-                + (-yawCos * mapPixelX + yawSin * mapPixelY);
+                + (-yawCos * samplePixelX + yawSin * samplePixelY);
         double textureY = cache.physicalBaseZ
                 + TEXTURE_HALF_SIZE
                 + localSampleZ - cache.centerSampleZ
-                + (-yawSin * mapPixelX - yawCos * mapPixelY);
+                + (-yawSin * samplePixelX - yawCos * samplePixelY);
         GL11.glTexCoord2d((textureX + 0.5D) / TEXTURE_SIZE, (textureY + 0.5D) / TEXTURE_SIZE);
     }
 
@@ -302,10 +512,14 @@ final class MinimapTerrainManager {
         private final ArrayDeque<SampleTask> pendingTasks = new ArrayDeque<SampleTask>();
         private final boolean[] valid = new boolean[TEXTURE_SIZE * TEXTURE_SIZE];
         private final boolean[] dirty = new boolean[TEXTURE_SIZE * TEXTURE_SIZE];
+        private final byte[] sampleKinds = new byte[TEXTURE_SIZE * TEXTURE_SIZE];
+        private final int[] surfaceHeights = new int[TEXTURE_SIZE * TEXTURE_SIZE];
+        private final int[] baseRgbs = new int[TEXTURE_SIZE * TEXTURE_SIZE];
         private final int[] uploadBuffer = new int[TEXTURE_SIZE * TEXTURE_SIZE];
         private final int[] footprintChunkXs = new int[FOOTPRINT_CHUNK_CACHE_SIZE];
         private final int[] footprintChunkZs = new int[FOOTPRINT_CHUNK_CACHE_SIZE];
         private final Chunk[] footprintChunks = new Chunk[FOOTPRINT_CHUNK_CACHE_SIZE];
+        private final BlockPos.MutableBlockPos surfacePos = new BlockPos.MutableBlockPos();
 
         private DynamicTexture texture;
         private int[] pixels;
@@ -314,14 +528,15 @@ final class MinimapTerrainManager {
         private int centerSampleZ;
         private int physicalBaseX;
         private int physicalBaseZ;
-        private int referenceY;
         private int nearRefreshCursor;
         private int farRefreshCursor;
         private int refreshSelector;
         private int dirtyCount;
         private int footprintChunkCount;
+        private int stableRefreshTicks;
         private boolean needsFullUpload;
         private boolean failed;
+        private boolean movedThisTick;
 
         private TerrainCache(double blocksPerPixel, int visibleHalfSize) {
             this.blocksPerPixel = blocksPerPixel;
@@ -336,20 +551,28 @@ final class MinimapTerrainManager {
             return texture != null && !failed;
         }
 
+        private boolean isWarm() {
+            return canDraw() && world != null && pendingTasks.isEmpty() && !needsFullUpload && dirtyCount == 0;
+        }
+
         private void reset() {
             world = null;
             pendingTasks.clear();
             Arrays.fill(valid, false);
             Arrays.fill(dirty, false);
+            Arrays.fill(sampleKinds, TERRAIN_INVALID);
+            Arrays.fill(surfaceHeights, 0);
+            Arrays.fill(baseRgbs, 0);
             centerSampleX = 0;
             centerSampleZ = 0;
             physicalBaseX = 0;
             physicalBaseZ = 0;
-            referenceY = 64;
             nearRefreshCursor = 0;
             farRefreshCursor = 0;
             refreshSelector = 0;
             dirtyCount = 0;
+            stableRefreshTicks = 0;
+            movedThisTick = false;
             failed = false;
             if (pixels != null) {
                 Arrays.fill(pixels, VOID_COLOR);
@@ -357,12 +580,12 @@ final class MinimapTerrainManager {
             }
         }
 
-        private void prepare(World currentWorld, double localX, double localY, double localZ) {
+        private void prepare(World currentWorld, double localX, double localZ) {
             try {
                 ensureTexture();
                 int targetCenterX = MathHelper.floor_double(localX / blocksPerPixel);
                 int targetCenterZ = MathHelper.floor_double(localZ / blocksPerPixel);
-                referenceY = MathHelper.floor_double(localY);
+                movedThisTick = false;
                 if (world != currentWorld) {
                     initializeForWorld(currentWorld, targetCenterX, targetCenterZ);
                     return;
@@ -394,9 +617,14 @@ final class MinimapTerrainManager {
             nearRefreshCursor = 0;
             farRefreshCursor = 0;
             refreshSelector = 0;
+            stableRefreshTicks = 0;
+            movedThisTick = true;
             pendingTasks.clear();
             Arrays.fill(valid, false);
             Arrays.fill(dirty, false);
+            Arrays.fill(sampleKinds, TERRAIN_INVALID);
+            Arrays.fill(surfaceHeights, 0);
+            Arrays.fill(baseRgbs, 0);
             dirtyCount = 0;
             Arrays.fill(pixels, VOID_COLOR);
             needsFullUpload = true;
@@ -448,6 +676,7 @@ final class MinimapTerrainManager {
                 return;
             }
 
+            movedThisTick = true;
             if (Math.abs(deltaX) > visibleHalfSize || Math.abs(deltaZ) > visibleHalfSize) {
                 initializeForWorld(world, targetCenterX, targetCenterZ);
                 return;
@@ -510,10 +739,14 @@ final class MinimapTerrainManager {
                     }
                     int index = physicalIndex(sampleX, sampleZ);
                     valid[index] = false;
+                    sampleKinds[index] = TERRAIN_INVALID;
+                    surfaceHeights[index] = 0;
+                    baseRgbs[index] = 0;
                     if (pixels[index] != VOID_COLOR) {
                         pixels[index] = VOID_COLOR;
                         markDirty(index);
                     }
+                    recomposeDependentPixels(sampleX, sampleZ);
                 }
             }
             enqueueTask(minX, maxX, minZ, maxZ);
@@ -525,12 +758,64 @@ final class MinimapTerrainManager {
             }
         }
 
-        private int sample(World currentWorld, long deadlineNanos, int maxSamples) {
-            if (failed || world != currentWorld || maxSamples <= 0) {
+        private int sampleLimit(int maxSamples) {
+            if (needsFullSpeedRefresh()) {
+                return maxSamples;
+            }
+
+            if (stableRefreshTicks >= IDLE_DEEP_TICKS) {
+                return Math.min(maxSamples, IDLE_DEEP_SAMPLE_LIMIT);
+            }
+            if (stableRefreshTicks >= IDLE_MEDIUM_TICKS) {
+                return Math.min(maxSamples, IDLE_MEDIUM_SAMPLE_LIMIT);
+            }
+            if (stableRefreshTicks >= IDLE_LIGHT_TICKS) {
+                return Math.min(maxSamples, IDLE_LIGHT_SAMPLE_LIMIT);
+            }
+            return maxSamples;
+        }
+
+        private boolean needsFullSpeedRefresh() {
+            return movedThisTick || needsFullUpload || dirtyCount > 0 || !pendingTasks.isEmpty();
+        }
+
+        private int idleBackoffTier() {
+            if (needsFullSpeedRefresh()) {
                 return 0;
+            }
+            if (stableRefreshTicks >= IDLE_DEEP_TICKS) {
+                return 3;
+            }
+            if (stableRefreshTicks >= IDLE_MEDIUM_TICKS) {
+                return 2;
+            }
+            if (stableRefreshTicks >= IDLE_LIGHT_TICKS) {
+                return 1;
+            }
+            return 0;
+        }
+
+        private void finishTick(int changedSamples, int uploadedPixels) {
+            if (movedThisTick
+                    || changedSamples > 0
+                    || uploadedPixels > 0
+                    || needsFullUpload
+                    || dirtyCount > 0
+                    || !pendingTasks.isEmpty()) {
+                stableRefreshTicks = 0;
+            } else if (stableRefreshTicks < IDLE_DEEP_TICKS + 1200) {
+                stableRefreshTicks++;
+            }
+            movedThisTick = false;
+        }
+
+        private long sample(World currentWorld, long deadlineNanos, int maxSamples) {
+            if (failed || world != currentWorld || maxSamples <= 0) {
+                return packSampleResult(0, 0);
             }
 
             int samples = 0;
+            int changed = 0;
             while (samples < maxSamples && System.nanoTime() < deadlineNanos) {
                 long coordinate = nextSampleCoordinate();
                 int sampleX = (int) (coordinate >> 32);
@@ -539,19 +824,19 @@ final class MinimapTerrainManager {
                     continue;
                 }
 
-                boolean bridgeScan = Math.abs(sampleX - centerSampleX) <= NEAR_REFRESH_RADIUS
+                boolean topRepairScan = Math.abs(sampleX - centerSampleX) <= NEAR_REFRESH_RADIUS
                         && Math.abs(sampleZ - centerSampleZ) <= NEAR_REFRESH_RADIUS;
-                int color;
                 try {
-                    color = terrainColor(currentWorld, sampleX, sampleZ, bridgeScan);
+                    if (sampleTerrain(currentWorld, sampleX, sampleZ, topRepairScan)) {
+                        changed++;
+                    }
                 } catch (Throwable throwable) {
                     fail("sample", throwable);
                     break;
                 }
-                setPixel(sampleX, sampleZ, color);
                 samples++;
             }
-            return samples;
+            return packSampleResult(samples, changed);
         }
 
         private long nextSampleCoordinate() {
@@ -592,7 +877,7 @@ final class MinimapTerrainManager {
             return pack(centerSampleX + offsetX, centerSampleZ + offsetZ);
         }
 
-        private int terrainColor(World currentWorld, int sampleX, int sampleZ, boolean bridgeScan) {
+        private boolean sampleTerrain(World currentWorld, int sampleX, int sampleZ, boolean topRepairScan) {
             int footprintSize = Math.max(1, (int) Math.ceil(blocksPerPixel));
             double centerBlockX = sampleX * blocksPerPixel;
             double centerBlockZ = sampleZ * blocksPerPixel;
@@ -600,70 +885,95 @@ final class MinimapTerrainManager {
             int startBlockZ = MathHelper.floor_double(centerBlockZ - (footprintSize - 1) * 0.5D);
             footprintChunkCount = 0;
 
-            TerrainColumnSample bestSample = null;
+            boolean hasBestSample = false;
+            int bestSurfaceY = -1;
+            int bestBaseRgb = 0;
             boolean sawLoadedColumn = false;
             for (int offsetZ = 0; offsetZ < footprintSize; offsetZ++) {
                 for (int offsetX = 0; offsetX < footprintSize; offsetX++) {
-                    TerrainColumnSample sample = terrainColumnSample(
+                    long sample = terrainColumnSample(
                             currentWorld,
                             startBlockX + offsetX,
                             startBlockZ + offsetZ,
-                            bridgeScan
+                            topRepairScan
                     );
-                    if (sample.unloaded) {
+                    int kind = columnKind(sample);
+                    if (kind == COLUMN_UNLOADED) {
                         continue;
                     }
                     sawLoadedColumn = true;
-                    if (!sample.empty && (bestSample == null || sample.surfaceY > bestSample.surfaceY)) {
-                        bestSample = sample;
+                    if (kind == COLUMN_SOLID) {
+                        int surfaceY = columnSurfaceY(sample);
+                        if (!hasBestSample || surfaceY > bestSurfaceY) {
+                            hasBestSample = true;
+                            bestSurfaceY = surfaceY;
+                            bestBaseRgb = columnBaseRgb(sample);
+                        }
                     }
                 }
             }
 
-            if (bestSample != null) {
-                return bestSample.color;
+            if (hasBestSample) {
+                return setSample(sampleX, sampleZ, TERRAIN_SOLID, bestSurfaceY, bestBaseRgb);
+            } else if (sawLoadedColumn) {
+                return setSample(sampleX, sampleZ, TERRAIN_VOID, -1, 0);
+            } else {
+                return setSample(sampleX, sampleZ, TERRAIN_UNLOADED, -1, 0);
             }
-            return sawLoadedColumn ? VOID_COLOR : UNLOADED_COLOR;
         }
 
-        private TerrainColumnSample terrainColumnSample(World currentWorld, int blockX, int blockZ, boolean bridgeScan) {
+        private long terrainColumnSample(World currentWorld, int blockX, int blockZ, boolean topRepairScan) {
             Chunk chunk = footprintChunk(currentWorld, blockX >> 4, blockZ >> 4);
             if (chunk == null) {
-                return TerrainColumnSample.unloaded();
+                return COLUMN_UNLOADED_SAMPLE;
             }
 
             int localX = blockX & 15;
             int localZ = blockZ & 15;
             int surfaceY = chunk.getHeightValue(localX, localZ) - 1;
-            if (bridgeScan) {
-                int bridgeY = findBridgeSurface(chunk, localX, localZ);
-                if (bridgeY > surfaceY) {
-                    surfaceY = bridgeY;
-                }
-            }
-
             surfaceY = surfaceYAtOrBelow(chunk, localX, localZ, surfaceY);
+            if (surfaceY < 0 && topRepairScan) {
+                surfaceY = highestStoredSurfaceY(chunk, localX, localZ);
+            }
             if (surfaceY < 0) {
-                return TerrainColumnSample.empty();
+                return COLUMN_EMPTY_SAMPLE;
             }
             IBlockState state = directBlockState(chunk, localX, surfaceY, localZ);
 
             Block block = state.getBlock();
             Material material = block.getMaterial();
             int rgb;
-            BlockPos surfacePos = new BlockPos(blockX, surfaceY, blockZ);
             if (material == Material.water
                     || material == Material.grass
                     || material == Material.leaves
                     || material == Material.plants
                     || material == Material.vine) {
-                rgb = block.colorMultiplier(currentWorld, surfacePos, 0);
+                rgb = block.colorMultiplier(currentWorld, surfacePos.set(blockX, surfaceY, blockZ), 0);
             } else {
                 MapColor mapColor = block.getMapColor(state);
                 rgb = mapColor == null || mapColor == MapColor.airColor ? UNKNOWN_BLOCK_COLOR : mapColor.colorValue;
             }
 
-            return TerrainColumnSample.loaded(surfaceY, 0xF0000000 | shadeTerrain(rgb, surfaceY));
+            return packColumnSample(COLUMN_SOLID, surfaceY, shadeTerrain(rgb, surfaceY));
+        }
+
+        private int highestStoredSurfaceY(Chunk chunk, int localX, int localZ) {
+            ExtendedBlockStorage[] storages = chunk.getBlockStorageArray();
+            for (int section = storages.length - 1; section >= 0; section--) {
+                ExtendedBlockStorage storage = storages[section];
+                if (storage == null) {
+                    continue;
+                }
+
+                int sectionBaseY = section << 4;
+                for (int localY = 15; localY >= 0; localY--) {
+                    IBlockState state = storage.get(localX, localY, localZ);
+                    if (state != null && state.getBlock().getMaterial() != Material.air) {
+                        return sectionBaseY + localY;
+                    }
+                }
+            }
+            return -1;
         }
 
         private Chunk footprintChunk(World currentWorld, int chunkX, int chunkZ) {
@@ -683,18 +993,6 @@ final class MinimapTerrainManager {
                 footprintChunkCount++;
             }
             return chunk;
-        }
-
-        private int findBridgeSurface(Chunk chunk, int localX, int localZ) {
-            int top = MathHelper.clamp_int(referenceY + BRIDGE_SCAN_ABOVE, 0, 255);
-            int bottom = MathHelper.clamp_int(referenceY - BRIDGE_SCAN_BELOW, 0, 255);
-            for (int y = top; y >= bottom; y--) {
-                IBlockState state = directBlockState(chunk, localX, y, localZ);
-                if (state != null && state.getBlock().getMaterial() != Material.air) {
-                    return y;
-                }
-            }
-            return -1;
         }
 
         private int surfaceYAtOrBelow(Chunk chunk, int localX, int localZ, int surfaceY) {
@@ -730,13 +1028,99 @@ final class MinimapTerrainManager {
             return red << 16 | green << 8 | blue;
         }
 
-        private void setPixel(int sampleX, int sampleZ, int color) {
+        private boolean setSample(int sampleX, int sampleZ, byte kind, int surfaceY, int baseRgb) {
             int index = physicalIndex(sampleX, sampleZ);
-            if (!valid[index] || pixels[index] != color) {
+            boolean changed = !valid[index]
+                    || sampleKinds[index] != kind
+                    || surfaceHeights[index] != surfaceY
+                    || baseRgbs[index] != baseRgb;
+
+            if (!changed) {
+                valid[index] = true;
+                return false;
+            }
+
+            sampleKinds[index] = kind;
+            surfaceHeights[index] = surfaceY;
+            baseRgbs[index] = baseRgb;
+            valid[index] = true;
+            recomposePixel(sampleX, sampleZ);
+            recomposeDependentPixels(sampleX, sampleZ);
+            return true;
+        }
+
+        private void recomposeDependentPixels(int sampleX, int sampleZ) {
+            recomposePixel(sampleX - 1, sampleZ);
+            recomposePixel(sampleX, sampleZ - 1);
+        }
+
+        private void recomposePixel(int sampleX, int sampleZ) {
+            if (!isWithinVisibleRange(sampleX, sampleZ)) {
+                return;
+            }
+
+            int index = physicalIndex(sampleX, sampleZ);
+            int color = composedColor(sampleX, sampleZ, index);
+            if (pixels[index] != color) {
                 pixels[index] = color;
                 markDirty(index);
             }
-            valid[index] = true;
+        }
+
+        private int composedColor(int sampleX, int sampleZ, int index) {
+            if (!valid[index]) {
+                return VOID_COLOR;
+            }
+
+            byte kind = sampleKinds[index];
+            if (kind == TERRAIN_VOID) {
+                return VOID_COLOR;
+            }
+            if (kind == TERRAIN_UNLOADED) {
+                return UNLOADED_COLOR;
+            }
+            if (kind != TERRAIN_SOLID) {
+                return VOID_COLOR;
+            }
+
+            float relief = terrainRelief(sampleX, sampleZ, surfaceHeights[index]);
+            return 0xF0000000 | applyRelief(baseRgbs[index], relief);
+        }
+
+        private float terrainRelief(int sampleX, int sampleZ, int surfaceY) {
+            float heightDelta = 0.0F;
+            if (isSolidSample(sampleX + 1, sampleZ)) {
+                heightDelta += surfaceY - surfaceHeights[physicalIndex(sampleX + 1, sampleZ)];
+            }
+            if (isSolidSample(sampleX, sampleZ + 1)) {
+                heightDelta += surfaceY - surfaceHeights[physicalIndex(sampleX, sampleZ + 1)];
+            }
+
+            return MathHelper.clamp_float(
+                    heightDelta * 0.5F * RELIEF_SHADE_PER_BLOCK,
+                    -RELIEF_SHADE_LIMIT,
+                    RELIEF_SHADE_LIMIT
+            );
+        }
+
+        private boolean isSolidSample(int sampleX, int sampleZ) {
+            if (!isWithinVisibleRange(sampleX, sampleZ)) {
+                return false;
+            }
+
+            int index = physicalIndex(sampleX, sampleZ);
+            return valid[index] && sampleKinds[index] == TERRAIN_SOLID;
+        }
+
+        private int applyRelief(int rgb, float relief) {
+            float shade = 1.0F + relief;
+            int red = (rgb >> 16) & 255;
+            int green = (rgb >> 8) & 255;
+            int blue = rgb & 255;
+            red = MathHelper.clamp_int((int) (red * shade), 0, 255);
+            green = MathHelper.clamp_int((int) (green * shade), 0, 255);
+            blue = MathHelper.clamp_int((int) (blue * shade), 0, 255);
+            return red << 16 | green << 8 | blue;
         }
 
         private void markDirty(int index) {
@@ -763,9 +1147,9 @@ final class MinimapTerrainManager {
                     && Math.abs(sampleZ - centerSampleZ) <= visibleHalfSize;
         }
 
-        private int flushDirtyTexture() {
+        private void flushDirtyTexture(UploadResult result) {
             if (failed || texture == null) {
-                return 0;
+                return;
             }
 
             try {
@@ -779,14 +1163,16 @@ final class MinimapTerrainManager {
                     Arrays.fill(dirty, false);
                     dirtyCount = 0;
                     needsFullUpload = false;
-                    return TEXTURE_SIZE * TEXTURE_SIZE;
+                    result.uploadedPixels += TEXTURE_SIZE * TEXTURE_SIZE;
+                    result.rectangles++;
+                    result.fullUploads++;
+                    return;
                 }
                 if (dirtyCount == 0) {
-                    return 0;
+                    return;
                 }
 
-                int uploaded = 0;
-                int startIndex = firstDirtyIndex();
+                int startIndex = firstDirtyIndex(0);
                 while (startIndex >= 0) {
                     int startY = startIndex / TEXTURE_SIZE;
                     int startX = startIndex - startY * TEXTURE_SIZE;
@@ -813,18 +1199,17 @@ final class MinimapTerrainManager {
 
                     TextureUtil.bindTexture(texture.getGlTextureId());
                     TextureUtil.uploadTextureSub(0, uploadBuffer, width, height, startX, startY, false, false, false);
-                    uploaded += width * height;
-                    startIndex = firstDirtyIndex();
+                    result.uploadedPixels += width * height;
+                    result.rectangles++;
+                    startIndex = dirtyCount == 0 ? -1 : firstDirtyIndex(startIndex + 1);
                 }
-                return uploaded;
             } catch (Throwable throwable) {
                 fail("upload", throwable);
-                return 0;
             }
         }
 
-        private int firstDirtyIndex() {
-            for (int index = 0; index < dirty.length; index++) {
+        private int firstDirtyIndex(int startAt) {
+            for (int index = Math.max(0, startAt); index < dirty.length; index++) {
                 if (dirty[index]) {
                     return index;
                 }
@@ -886,30 +1271,46 @@ final class MinimapTerrainManager {
         }
     }
 
-    private static final class TerrainColumnSample {
-        private final boolean unloaded;
-        private final boolean empty;
-        private final int surfaceY;
-        private final int color;
+    private static final class UploadResult {
+        private int uploadedPixels;
+        private int rectangles;
+        private int fullUploads;
 
-        private TerrainColumnSample(boolean unloaded, boolean empty, int surfaceY, int color) {
-            this.unloaded = unloaded;
-            this.empty = empty;
-            this.surfaceY = surfaceY;
-            this.color = color;
+        private void reset() {
+            uploadedPixels = 0;
+            rectangles = 0;
+            fullUploads = 0;
         }
+    }
 
-        private static TerrainColumnSample unloaded() {
-            return new TerrainColumnSample(true, false, -1, UNLOADED_COLOR);
-        }
+    private static long packColumnSample(int kind, int surfaceY, int baseRgb) {
+        return ((long) kind << 40)
+                | ((long) (surfaceY & 0xFFFF) << 24)
+                | (baseRgb & 0xFFFFFFL);
+    }
 
-        private static TerrainColumnSample empty() {
-            return new TerrainColumnSample(false, true, -1, VOID_COLOR);
-        }
+    private static int columnKind(long sample) {
+        return (int) (sample >>> 40);
+    }
 
-        private static TerrainColumnSample loaded(int surfaceY, int color) {
-            return new TerrainColumnSample(false, false, surfaceY, color);
-        }
+    private static int columnSurfaceY(long sample) {
+        return (int) ((sample >>> 24) & 0xFFFFL);
+    }
+
+    private static int columnBaseRgb(long sample) {
+        return (int) (sample & 0xFFFFFFL);
+    }
+
+    private static long packSampleResult(int samples, int changed) {
+        return ((long) changed << 32) | (samples & 0xFFFFFFFFL);
+    }
+
+    private static int sampleResultSamples(long result) {
+        return (int) result;
+    }
+
+    private static int sampleResultChanges(long result) {
+        return (int) (result >>> 32);
     }
 
     private static long pack(int x, int z) {

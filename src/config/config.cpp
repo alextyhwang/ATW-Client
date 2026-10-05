@@ -106,6 +106,7 @@ void Config::save() {
     saveObj["javaOptimizationProfile"] = javaOptimizationProfile;
     saveObj["useLargePages"] = useLargePages;
     saveObj["showGpuReminder"] = showGpuReminder;
+    saveObj["enableLunarEnable"] = enableLunarEnable;
 
     saveObj["useCustomMinecraftDir"] = useCustomMinecraftDir;
     saveObj["customMinecraftDir"] = storePortablePath(customMinecraftDir);
@@ -114,9 +115,11 @@ void Config::save() {
     saveObj["serverIp"] = serverIp;
 
     saveObj["useWeave"] = useWeave;
+    saveObj["weaveOffline"] = weaveOffline;
 
     saveObj["windowWidth"] = windowWidth;
     saveObj["windowHeight"] = windowHeight;
+    saveObj["maxFps"] = maxFps;
 
     QJsonArray arr;
     for(const Agent& agent : agents){
@@ -205,6 +208,7 @@ Config Config::load() {
         jsonObj["javaOptimizationProfile"].toString(QStringLiteral("stable-g1")),
         jsonObj["useLargePages"].toBool(false),
         jsonObj["showGpuReminder"].toBool(true),
+        jsonObj["enableLunarEnable"].toBool(true),
         jsonObj["closeOnLaunch"].toBool(false),
         jsonObj["autoLaunchOnOpen"].toBool(true),
         jsonObj["useCustomMinecraftDir"].toBool(false),
@@ -213,6 +217,7 @@ Config Config::load() {
         jsonObj["serverIp"].toString(),
         jsonObj["windowWidth"].toInt(640),
         jsonObj["windowHeight"].toInt(480),
+        jsonObj["maxFps"].toInt(480) > 0 ? jsonObj["maxFps"].toInt(480) : 480,
         jsonObj["useWeave"].toBool(
 #ifdef ATW_PACKAGE_MODE
             true
@@ -220,6 +225,7 @@ Config Config::load() {
             false
 #endif
         ),
+        jsonObj["weaveOffline"].toBool(true),
         agents,
         helpers,
         mods
@@ -246,17 +252,6 @@ void Config::saveJsonToConfig(const QJsonObject &jsonObject) {
 QJsonObject Config::loadJsonFromConfig() {
     QFile configFile(configFilePath());
     if (!configFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
-#ifdef ATW_PACKAGE_MODE
-        QFile legacyConfigFile(legacyConfigFilePath());
-        if (legacyConfigFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
-            QJsonObject legacyObj = QJsonDocument::fromJson(legacyConfigFile.readAll()).object();
-            legacyConfigFile.close();
-            legacyObj["useCustomJre"] = true;
-            legacyObj["customJrePath"] = QStringLiteral("runtime/java/bin/java.exe");
-            legacyObj["useWeave"] = true;
-            return legacyObj;
-        }
-#endif
         return {};
     }
 

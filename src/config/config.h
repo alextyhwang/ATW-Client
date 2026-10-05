@@ -53,6 +53,7 @@ public:
     QString javaOptimizationProfile;
     bool useLargePages;
     bool showGpuReminder;
+    bool enableLunarEnable;
 
     bool closeOnLaunch;
     bool autoLaunchOnOpen;
@@ -65,8 +66,10 @@ public:
 
     int windowWidth;
     int windowHeight;
+    int maxFps;
 
     bool useWeave;
+    bool weaveOffline;
 
     QList<Agent> agents;
     QStringList helpers;

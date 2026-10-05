@@ -8,7 +8,7 @@ import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.util.AxisAlignedBB;
 import net.minecraft.util.MathHelper;
 import net.minecraft.util.Vec3;
-import net.weavemc.loader.api.event.RenderLivingEvent;
+import net.weavemc.api.event.RenderLivingEvent;
 import org.lwjgl.opengl.GL11;
 
 public class OptimalZoneRenderer {

@@ -1,0 +1,99 @@
+iconst_5
+invokestatic  #189                // Method org/lwjgl/opengl/GL11.glBegin:(I)V
+iload_3
+i2f
+ldc           #190                // float 128.0f
+fdiv
+iload         4
+i2f
+ldc           #190                // float 128.0f
+fdiv
+invokestatic  #194                // Method org/lwjgl/opengl/GL11.glTexCoord2f:(FF)V
+aload_0
+getfield      #196                // Field posX:F
+iload         5
+i2f
+fadd
+aload_0
+getfield      #198                // Field posY:F
+fconst_0
+invokestatic  #202                // Method org/lwjgl/opengl/GL11.glVertex3f:(FFF)V
+iload_3
+i2f
+ldc           #190                // float 128.0f
+fdiv
+iload         4
+i2f
+ldc           #203                // float 7.99f
+fadd
+ldc           #190                // float 128.0f
+fdiv
+invokestatic  #194                // Method org/lwjgl/opengl/GL11.glTexCoord2f:(FF)V
+aload_0
+getfield      #196                // Field posX:F
+iload         5
+i2f
+fsub
+aload_0
+getfield      #198                // Field posY:F
+ldc           #203                // float 7.99f
+fadd
+fconst_0
+invokestatic  #202                // Method org/lwjgl/opengl/GL11.glVertex3f:(FFF)V
+iload_3
+i2f
+fload         7
+fadd
+fconst_1
+fsub
+ldc           #190                // float 128.0f
+fdiv
+iload         4
+i2f
+ldc           #190                // float 128.0f
+fdiv
+invokestatic  #194                // Method org/lwjgl/opengl/GL11.glTexCoord2f:(FF)V
+aload_0
+getfield      #196                // Field posX:F
+fload         7
+fadd
+fconst_1
+fsub
+iload         5
+i2f
+fadd
+aload_0
+getfield      #198                // Field posY:F
+fconst_0
+invokestatic  #202                // Method org/lwjgl/opengl/GL11.glVertex3f:(FFF)V
+iload_3
+i2f
+fload         7
+fadd
+fconst_1
+fsub
+ldc           #190                // float 128.0f
+fdiv
+iload         4
+i2f
+ldc           #203                // float 7.99f
+fadd
+ldc           #190                // float 128.0f
+fdiv
+invokestatic  #194                // Method org/lwjgl/opengl/GL11.glTexCoord2f:(FF)V
+aload_0
+getfield      #196                // Field posX:F
+fload         7
+fadd
+fconst_1
+fsub
+iload         5
+i2f
+fsub
+aload_0
+getfield      #198                // Field posY:F
+ldc           #203                // float 7.99f
+fadd
+fconst_0
+invokestatic  #202                // Method org/lwjgl/opengl/GL11.glVertex3f:(FFF)V
+invokestatic  #206                // Method org/lwjgl/opengl/GL11.glEnd:()V

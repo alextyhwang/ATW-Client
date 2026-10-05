@@ -1,7 +1,7 @@
 package com.atw.optimalzone;
 
 import com.atw.optimalzone.command.OverlayCommand;
-import com.atw.optimalzone.render.InvisOverlayRenderer;
+import com.atw.optimalzone.render.BedwarsBaseAlertManager;
 import com.atw.optimalzone.render.OccludedPlayerRenderer;
 import com.atw.optimalzone.render.OptimalZoneRenderer;
 import com.atw.optimalzone.render.PlayerMinimapRenderer;
@@ -21,28 +21,31 @@ import net.minecraft.util.ChatComponentText;
 import net.minecraft.util.EnumChatFormatting;
 import net.minecraft.util.IChatComponent;
 import net.minecraft.util.MovingObjectPosition;
-import net.weavemc.loader.api.ModInitializer;
-import net.weavemc.loader.api.command.CommandBus;
-import net.weavemc.loader.api.event.EventBus;
-import net.weavemc.loader.api.event.RenderGameOverlayEvent;
-import net.weavemc.loader.api.event.RenderLivingEvent;
-import net.weavemc.loader.api.event.RenderWorldEvent;
-import net.weavemc.loader.api.event.TickEvent;
+import net.weavemc.api.ModInitializer;
+import net.weavemc.api.command.CommandBus;
+import net.weavemc.api.event.ChatEvent;
+import net.weavemc.api.event.EventBus;
+import net.weavemc.api.event.RenderGameOverlayEvent;
+import net.weavemc.api.event.RenderLivingEvent;
+import net.weavemc.api.event.RenderWorldEvent;
+import net.weavemc.api.event.TickEvent;
+import net.weavemc.api.event.WorldEvent;
 import org.lwjgl.input.Mouse;
 
 import java.util.Collection;
 import java.util.UUID;
 
 public class OptimalZoneMod implements ModInitializer {
-    public static final String PREFIX = EnumChatFormatting.AQUA + "[ATW's Overlay] " + EnumChatFormatting.RESET;
+    // Same aqua/reset text, without initializing Minecraft enums during preInit.
+    public static final String PREFIX = "\u00a7b[ATW's Overlay] \u00a7r";
     private static final long OPTIMAL_ZONE_HIT_WINDOW_MILLIS = 650L;
     private static final long DAMAGE_SOUND_COOLDOWN_MILLIS = 650L;
 
-    private final OptimalZoneRenderer optimalZoneRenderer = new OptimalZoneRenderer(this);
-    private final ProjectileTrajectoryRenderer trajectoryRenderer = new ProjectileTrajectoryRenderer(this);
-    private final OccludedPlayerRenderer occludedPlayerRenderer = new OccludedPlayerRenderer(this);
-    private final PlayerMinimapRenderer minimapRenderer = new PlayerMinimapRenderer(this);
-    private final InvisOverlayRenderer invisOverlayRenderer = new InvisOverlayRenderer(this);
+    private OptimalZoneRenderer optimalZoneRenderer;
+    private ProjectileTrajectoryRenderer trajectoryRenderer;
+    private OccludedPlayerRenderer occludedPlayerRenderer;
+    private BedwarsBaseAlertManager bedwarsBaseAlertManager;
+    private PlayerMinimapRenderer minimapRenderer;
     private boolean enabled = true;
     private boolean optimalZoneEnabled = true;
     private boolean projectilesEnabled = true;
@@ -57,20 +60,29 @@ public class OptimalZoneMod implements ModInitializer {
     private long lastDamageSoundMillis;
 
     @Override
-    public void preInit() {
+    public void init() {
+        optimalZoneRenderer = new OptimalZoneRenderer(this);
+        trajectoryRenderer = new ProjectileTrajectoryRenderer(this);
+        occludedPlayerRenderer = new OccludedPlayerRenderer(this);
+        bedwarsBaseAlertManager = new BedwarsBaseAlertManager(this);
+        minimapRenderer = new PlayerMinimapRenderer(this, bedwarsBaseAlertManager);
         CommandBus.register(new OverlayCommand(this, "atwoverlay", OverlayCommand.Action.STATUS));
         CommandBus.register(new OverlayCommand(this, "toggleoptimalzone", OverlayCommand.Action.TOGGLE_OPTIMAL_ZONE));
         CommandBus.register(new OverlayCommand(this, "togglechams", OverlayCommand.Action.TOGGLE_CHAMS));
         CommandBus.register(new OverlayCommand(this, "toggleminimap", OverlayCommand.Action.TOGGLE_MINIMAP));
         CommandBus.register(new OverlayCommand(this, "togglebigmap", OverlayCommand.Action.TOGGLE_BIG_MAP));
         CommandBus.register(new OverlayCommand(this, "toggleinvisoverlay", OverlayCommand.Action.TOGGLE_INVIS_OVERLAY));
-        EventBus.subscribe(RenderLivingEvent.Pre.class, occludedPlayerRenderer::render);
+        // ATW LevelHead owns the package-wide Lunar command packet bridge.
+        EventBus.subscribe(RenderLivingEvent.Pre.class, occludedPlayerRenderer::renderPre);
+        EventBus.subscribe(RenderLivingEvent.Post.class, occludedPlayerRenderer::renderPost);
         EventBus.subscribe(RenderLivingEvent.Post.class, optimalZoneRenderer::render);
         EventBus.subscribe(RenderWorldEvent.class, trajectoryRenderer::render);
-        EventBus.subscribe(RenderWorldEvent.class, invisOverlayRenderer::render);
         EventBus.subscribe(RenderGameOverlayEvent.Post.class, minimapRenderer::render);
         EventBus.subscribe(TickEvent.Post.class, minimapRenderer::onTick);
-        EventBus.subscribe(TickEvent.Post.class, invisOverlayRenderer::onTick);
+        EventBus.subscribe(TickEvent.Post.class, bedwarsBaseAlertManager::onTick);
+        EventBus.subscribe(ChatEvent.Received.class, bedwarsBaseAlertManager::onChatReceived);
+        EventBus.subscribe(WorldEvent.Load.class, bedwarsBaseAlertManager::onWorldLoad);
+        EventBus.subscribe(WorldEvent.Unload.class, bedwarsBaseAlertManager::onWorldUnload);
         EventBus.subscribe(TickEvent.Post.class, this::onTick);
         log("Loaded.");
     }
@@ -164,7 +176,15 @@ public class OptimalZoneMod implements ModInitializer {
     }
 
     public void sendMinimapPerformance() {
-        sendChat(EnumChatFormatting.YELLOW + minimapRenderer.performanceSummary());
+        String[] lines = minimapRenderer.performanceSummaryLines();
+        for (String line : lines) {
+            sendChat(EnumChatFormatting.YELLOW + line);
+        }
+    }
+
+    public void resetMinimapPerformance() {
+        minimapRenderer.resetPerformance();
+        sendChat(EnumChatFormatting.YELLOW + "Minimap performance counters reset.");
     }
 
     public void toggleInvisOverlay() {

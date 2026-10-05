@@ -14,6 +14,9 @@ public final class OverlayColorResolver {
     private static final float INVISIBLE_RED = 0.20F;
     private static final float INVISIBLE_GREEN = 0.85F;
     private static final float INVISIBLE_BLUE = 1.00F;
+    private static final float VOIDING_RED = 0.58F;
+    private static final float VOIDING_GREEN = 0.58F;
+    private static final float VOIDING_BLUE = 0.58F;
     private static final String CHAT_COLOR_CODES = "0123456789abcdef";
     private static final float COLOR_BRIGHTEN_AMOUNT = 0.35F;
 
@@ -47,6 +50,10 @@ public final class OverlayColorResolver {
 
     public static Color invisiblePlayer() {
         return new Color(INVISIBLE_RED, INVISIBLE_GREEN, INVISIBLE_BLUE);
+    }
+
+    public static Color voidingPlayer() {
+        return new Color(VOIDING_RED, VOIDING_GREEN, VOIDING_BLUE);
     }
 
     private static Color colorFromTeam(EntityPlayer player, Team team) {
