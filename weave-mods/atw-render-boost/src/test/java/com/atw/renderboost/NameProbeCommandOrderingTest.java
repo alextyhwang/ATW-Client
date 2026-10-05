@@ -184,6 +184,7 @@ public class NameProbeCommandOrderingTest implements Opcodes {
             constructor.visitInsn(RETURN); constructor.visitMaxs(0,0); constructor.visitEnd();
             if (name.equals("net.minecraft.client.Minecraft")) {
                 writer.visitField(ACC_PUBLIC, "thePlayer", "Lnet/minecraft/client/entity/EntityPlayerSP;", null, null).visitEnd();
+                writer.visitField(ACC_PUBLIC, "theWorld", "Lnet/minecraft/client/multiplayer/WorldClient;", null, null).visitEnd();
                 MethodVisitor method = writer.visitMethod(ACC_PUBLIC|ACC_STATIC, "getMinecraft", "()L"+owner+";", null, null);
                 method.visitCode(); method.visitTypeInsn(NEW, owner); method.visitInsn(DUP);
                 method.visitMethodInsn(INVOKESPECIAL, owner, "<init>", "()V", false);

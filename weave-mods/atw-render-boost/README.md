@@ -2,13 +2,100 @@
 
 Minecraft **1.8.9 only**, Weave Gradle/API **1.4.1**, Java 17 build toolchain,
 Java 8 class files. An opt-in frame error-poll policy, a bounded experimental
-default-font geometry cache, a guarded terrain VAO cache, and a local frame benchmark. **No measured FPS improvement is claimed. Double FPS
-has not been demonstrated.** The integrated jar reached a live local world;
+default-font geometry cache, a guarded terrain VAO cache, a bounded name parse
+cache and a local frame benchmark. Moving Bedwars Practice comparisons at
+windowed 2560×1421 observed **12.6% higher average FPS with the name parse cache**;
+see [measurements and limits](../../docs/NAME_PARSE_PERFORMANCE.md).
+**Double FPS has not been demonstrated.** The integrated jar reached a live local world;
 the captured Lunar font path is incompatible with this per-glyph cache.
 
 ## Exact behavior
 
+### Strict flat show-entity SNBT parse cache (independent, enabled by default)
+
+`/atwboost names on|off|status|clear` controls the bounded parse cache for the
+current session. Normal startup requests this measured optimization; actual
+activation still requires all exact hooks and runtime guards below.
+`-Datwboost.names=false` forces it OFF on startup. Invalid values or an unavailable
+property read also start OFF. Commands do not persist the startup preference.
+The measured benefit is local to the tested multiplayer route; exhaustive visual
+parity and Hypixel performance remain unproved. Every current entity/getter,
+component/style path and plain serialization still runs. At one exact captured
+show-entity converter callsite, OFF and misses execute the original `Codec.decode`
+instruction and return its original compound through its original cast/local store.
+Hits build a fresh native compound and fresh string tags from immutable strings
+read from an earlier successful original decode. Original type/key validation,
+UUID parsing, fresh text/ShowEntity construction, warnings and handlers still run.
+No entity, component/style, mutable NBT/tag, key, UUID or ShowEntity result is shared.
+
+Keys use exact equality of the already-produced complete SNBT String. Admission
+accepts only a complete flat compound containing unique `name` and `id` and optional
+`type`, with native unquoted field names and quoted string values.
+Backslashes, control characters, nested/list/numeric/unquoted values, duplicate or
+unknown keys, incomplete/trailing input bypass caching and retain the original
+parser, including its warnings/errors. Lexical validation occurs only on misses;
+decoded fields come from the successful original compound, never a new decoder.
+Storage is limited to 256 entries, 4096 characters per key and 524288 total retained
+UTF-16 key/field characters; eviction is LRU. OFF/clear, world/render-thread changes,
+reload and evidence changes invalidate entries. Helper failure latches fallback.
+
+Ten exact captured classes, 123 method bodies, field layout/constants and sixteen
+Mixin provenance entries independently gate this candidate. Detached comparison
+proves Weave temporary conflict names without changing running names/operands.
+The original retransformation layout and ten explicitly observed startup member
+orders are separate exact profiles; arbitrary sorting or order is not admitted.
+Startup differs only in method declaration order and the PUBLIC bit on exactly
+three `<clinit>()V` declarations (NBTBase, JsonToNBT and JsonToNBT$Primitive).
+Only after the full startup order/access/field profile matches, detached copies of
+those three initializers remove that ignored PUBLIC bit before checking the
+unchanged executable hashes. Every instruction/operand/handler remains exact;
+mixed unobserved order/access combinations and other access changes reject.
+Accepted definitions receive a synthetic constant proof field so runtime checks
+bind evidence to the actual loaded classes and common loader. The passed codec
+must equal the converter's captured private static final singleton field, have
+the captured `Codec$1` class and share that loader; arbitrary codecs bypass/clear.
+Unknown class/body/metadata retains original execution. Loader callbacks publish
+immutable proof state and queue invalidation; only the render thread touches the
+cache. Epoch validation spans eligibility and fresh-object return. Marker checks
+read declaration metadata only and do not initialize parser classes before the
+original decode. A later redefinition/repeated hook containing the proof marker
+or wrapper fails closed, clears admission and retains original codec execution;
+it is not dynamically rebased. No parser replacement occurs.
+
+Benchmark summaries export `namesRequested`, `namesHooksInstalled`, `namesActive`,
+`namesFailed`, `namesCacheActive`, current entries/characters and measured-window
+`nameParseHits`, `nameParseMisses`, admission/unsupported/oversize/eviction/failure/
+guard/invalidation deltas. Active requires actual hits in that measurement window.
+Names-ON sampling requires the exact loaded singleton guard to be active; changes
+or failures abort with no export. Compare moving OFF → ON → ON → OFF with probe,
+terrain and frame/glyph optimizations OFF, unchanged scene/quality and features.
+The parent must establish startup admission, native activation, visual/exception
+parity and repeatable multiplayer benefit before making any gain claim.
+
+`-PnameCodecCaptureTests=required` reads twelve designated private inputs in place,
+including the captured Codec interface factory. Public mode explicitly excludes
+these tests with `-PnameCodecCaptureTests=public`; captured bytes are never archived.
+`-PnameCodecStartupTests=required` additionally reads ten actual startup metadata
+reports in place and reconstructs their exact order/access from captured bodies,
+including the three PUBLIC-only hash predictions. Without that explicit mode,
+startup replay proof is excluded. Reports contain no class bytes.
+Actual captured converter execution uses controlled dependency stubs, and captured
+native compound/string constructor/getter bodies test fresh ownership. Public
+tests execute the production runtime singleton/lifecycle/evidence/failure/benchmark
+paths plus strict grammar/equality/bounds. These are offline proofs, not live FPS
+or complete game visual proofs.
+
 ### Bounded living-name diagnostic (default OFF)
+
+An opt-in startup mismatch diagnostic for the parse gate is available with
+`-Datwboost.nameParseEvidenceOutput=<absolute private directory>` pointing exactly
+to the pre-existing Performance `upgrade-work/environment-20261005/name-parse-cache/hookstage`.
+It writes one CREATE_NEW `.mismatch.properties` per exact gate target before
+mutation. Reports contain ordered member metadata, field signatures, hashed
+ConstantValues and exact body hash mismatches; no ClassNode/class bytes, text/NBT
+payloads, getters, class resolution, frame computation or GL calls. This diagnostic
+does not alter admission/evidence. Remove the property after the parent startup
+investigation; startup failure is not cache activation or an FPS result.
 
 `/atwboost probe10 counters` starts a ten-second counter control.
 `/atwboost probe10 timing` starts the same counters plus inclusive wall/thread-CPU
@@ -120,7 +207,8 @@ option, cross-startup capture proof is explicitly excluded. The complete local
 suite passed 144 tests; public mode passed 108 tests. These counts include all
 existing terrain and frame-policy tests, not just name diagnostics.
 
-All optimizations default **OFF**. Frame errors and glyph caching share the existing
+Frame-error, glyph and terrain optimizations default **OFF**. The independently
+guarded name parse cache defaults ON. Frame errors and glyph caching share the existing
 switch; terrain has an independent switch. Neither switch is persisted.
 It preserves Minecraft/Lunar settings, resolution, FPS cap, VSync, VBO,
 render distance, textures, particles, player rendering and chams. It neither

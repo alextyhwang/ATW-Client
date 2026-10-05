@@ -1,6 +1,9 @@
 # Recovered rendering environment and fair controls
 
-Measured on 2026-10-05, Minecraft 1.8.9 only. Acceptance now requires a substantial
+Measured on 2026-10-05, Minecraft 1.8.9 only. Subsequent authorized fallback-server
+tests observed a 12.6% moving multiplayer gain from the name parse cache at
+windowed 2560×1421; see [that comparison](NAME_PARSE_PERFORMANCE.md). It is separate
+from all environment recovery ratios below. Acceptance now requires a substantial
 improvement on Hypixel with players and movement, with existing visuals and mod
 features preserved. Single-player results screen candidates; they do not establish
 multiplayer performance.

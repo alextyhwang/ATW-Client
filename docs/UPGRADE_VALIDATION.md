@@ -1,6 +1,9 @@
 # Minecraft 1.8.9 upgrade validation
 
-Validation started 2026-10-04. The independent local checkout is
+Validation started 2026-10-04. Latest moving multiplayer result: **473→532 FPS
+(12.6% observed gain)** from the bounded name parse cache at windowed 2560×1421.
+See [the complete comparison and limits](NAME_PARSE_PERFORMANCE.md).
+The independent local checkout is
 `ATW-Client-Performance`, on `performance/weave-1.4.1-mc1.8.9`.
 The original checkout remains the baseline. Its pre-existing uncommitted source
 changes were included in the copy and are included in this branch.
@@ -64,6 +67,9 @@ source is not publishing the complete private game package.
   Rebrand 3, RawInput 5, NoHitDelay 1, Overlay 4 and Render Boost 29.
 - The later sampled-error-policy build passed all 37 Render Boost tests, with
   zero failures/errors/skips, bringing the current module test total to 56.
+- Subsequent guarded name-cache work passed 177 private / 131 public Render Boost
+  tests, zero failures/errors/skips. Private mode includes actual capture and
+  startup/restart evidence; public mode explicitly excludes those local fixtures.
 - A separate canonical Rebrand build through the Windows wrapper passed all
   three tests from a checkout path containing spaces.
 - The production Java probe passed with each of eight incompatible inherited
@@ -159,7 +165,7 @@ than 0.5%, while its p95/p99 frame times worsened substantially. OFF restored
 both checks and the earlier frame-time distribution. This candidate is therefore
 unsuccessful on this runtime and remains OFF by default and in the final session.
 
-**No substantial mod improvement has been established.** These experiments do not
+**The historical error-poll experiments above established no substantial improvement.** These experiments do not
 justify claiming that a future renderer optimization cannot help. They establish
 that neither implemented error-poll policy delivered the requested improvement
 in this scene. Hypixel performance remains unmeasured.

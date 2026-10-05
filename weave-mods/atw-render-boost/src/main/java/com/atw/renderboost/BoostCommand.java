@@ -14,6 +14,17 @@ public final class BoostCommand extends Command {
         String action = args.length > 1 ? args[1].toLowerCase(java.util.Locale.ROOT) : "status";
         try {
             switch (action) {
+                case "names":
+                    if(args.length>3)throw new IllegalArgumentException("names on|off|status|clear");
+                    String nameAction=args.length>2?args[2].toLowerCase(java.util.Locale.ROOT):"status";
+                    if(nameAction.equals("on") || nameAction.equals("off")) {
+                        RenderRuntime.cancelBenchmark("Name parse mode changed");
+                        com.atw.renderboost.cache.NameParseRuntime.request(nameAction.equals("on"));
+                    }else if(nameAction.equals("clear")) {
+                        RenderRuntime.cancelBenchmark("Name parse cache cleared");
+                        com.atw.renderboost.cache.NameParseRuntime.clear();
+                    }else if(!nameAction.equals("status"))throw new IllegalArgumentException("names on|off|status|clear");
+                    RenderRuntime.message(com.atw.renderboost.cache.NameParseRuntime.status());break;
                 case "probe10":
                     if (args.length > 3) throw new IllegalArgumentException("probe10 counters|timing|status|stop");
                     RenderRuntime.nameProbe(args.length > 2 ? args[2].toLowerCase(java.util.Locale.ROOT) : "status");
@@ -41,11 +52,14 @@ public final class BoostCommand extends Command {
                     break;
                 case "cancel": RenderRuntime.cancelBenchmark("Cancelled by command"); break;
                 case "status": RenderRuntime.message(RenderRuntime.status()); break;
-                default: RenderRuntime.message("/atwboost on|off|toggle|clear|status|terrain on|off|status|probe10 counters|timing|status|stop|bench [30] [10] [stationary|moving]|cancel");
+                default: RenderRuntime.message("/atwboost on|off|toggle|clear|status|names on|off|status|clear|terrain on|off|status|probe10 counters|timing|status|stop|bench [30] [10] [stationary|moving]|cancel");
             }
         } catch (IllegalArgumentException | IllegalStateException e) { RenderRuntime.message(e.getMessage()); }
     }
     @Override public String[] getSuggestions(String[] args, BlockPos target) {
+        if(args.length==2 && args[0].equalsIgnoreCase("names"))
+            return java.util.stream.Stream.of("on","off","status","clear")
+                    .filter(s->s.startsWith(args[1].toLowerCase(java.util.Locale.ROOT))).toArray(String[]::new);
         if (args.length == 2 && args[0].equalsIgnoreCase("terrain"))
             return java.util.stream.Stream.of("on", "off", "status")
                     .filter(s -> s.startsWith(args[1].toLowerCase(java.util.Locale.ROOT))).toArray(String[]::new);
@@ -53,7 +67,7 @@ public final class BoostCommand extends Command {
             return java.util.stream.Stream.of("counters", "timing", "status", "stop")
                     .filter(s -> s.startsWith(args[1].toLowerCase(java.util.Locale.ROOT))).toArray(String[]::new);
         if (args.length != 1) return new String[0];
-        return java.util.stream.Stream.of("on", "off", "toggle", "clear", "status", "terrain", "probe10", "bench", "cancel")
+        return java.util.stream.Stream.of("on", "off", "toggle", "clear", "status", "names", "terrain", "probe10", "bench", "cancel")
                 .filter(s -> s.startsWith(args[0].toLowerCase(java.util.Locale.ROOT))).toArray(String[]::new);
     }
 }

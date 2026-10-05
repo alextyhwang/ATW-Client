@@ -7,6 +7,7 @@ import com.atw.renderboost.cache.GlyphCache;
 import com.atw.renderboost.cache.GlyphKey;
 import com.atw.renderboost.terrain.TerrainControl;
 import com.atw.renderboost.probe.NameProbeRuntime;
+import com.atw.renderboost.cache.NameParseRuntime;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
@@ -42,6 +43,8 @@ public final class RenderRuntime {
     private static long playerCountSum, entityCountSum;
     private static int playerCountMin, playerCountMax, entityCountMin, entityCountMax;
     private static long[] benchTerrain;
+    private static long[] benchNames;
+    private static boolean benchNamesRequested;
     // LWJGL 2's glGetInteger(IntBuffer) validates room for its largest result.
     private static final IntBuffer VIEWPORT = BufferUtils.createIntBuffer(16);
     private static final ExecutorService EXPORT = Executors.newSingleThreadExecutor(r -> {
@@ -89,10 +92,10 @@ public final class RenderRuntime {
                 + ", failed=" + failed + ", lists=" + CACHE.size() + "/2048, hits=" + CACHE.hits
                 + ", misses=" + CACHE.misses + ", compiled=" + CACHE.compilations
                 + ", evicted=" + CACHE.evictions + ", " + TerrainControl.status()
-                + ", benchmark=" + (session == null ? "idle" : "running");
+                + ", " + NameParseRuntime.status() + ", benchmark=" + (session == null ? "idle" : "running");
     }
     /** Reload hooks may run off-thread: queue deletion, never issue GL calls there. */
-    public static void invalidate() { dirty = true; com.atw.renderboost.terrain.TerrainRuntime.invalidate(); }
+    public static void invalidate() { dirty = true; com.atw.renderboost.terrain.TerrainRuntime.invalidate(); NameParseRuntime.clear(); }
 
     public static boolean beginGlyph(Object font, int u, int v, int shear, float width, float x, float y) {
         if (Thread.currentThread() != renderThread) return false;
@@ -154,6 +157,7 @@ public final class RenderRuntime {
     }
     public static void frameStart() {
         renderThread = Thread.currentThread();
+        NameParseRuntime.frame(renderThread, NameParseRuntime.requested ? Minecraft.getMinecraft().theWorld : null);
         com.atw.renderboost.terrain.TerrainRuntime.frameThread();
         long now = System.nanoTime();
         NameProbeRuntime.frame(now);
@@ -269,6 +273,10 @@ public final class RenderRuntime {
             return;
         }
         try {
+            if (countersStarted && (benchNamesRequested != NameParseRuntime.requested
+                    || !NameParseRuntime.stable(benchNames, benchNamesRequested))) {
+                cancelBenchmark("Name parse mode/evidence/lifecycle/fallback changed"); return;
+            }
             int before = session.count();
             boolean done = session.frame(now, com.atw.renderboost.terrain.TerrainRuntime.benchmarkState());
             if (session.sampling() && !countersStarted) {
@@ -280,6 +288,12 @@ public final class RenderRuntime {
                 metadata.setProperty("cameraStart", camera(mc).toString());
                 recordRenderDimensions(metadata, "Start", mc);
                 benchTerrain = com.atw.renderboost.terrain.TerrainRuntime.counters();
+                benchNames = NameParseRuntime.counters();
+                benchNamesRequested = NameParseRuntime.requested;
+                if (benchNamesRequested && !NameParseRuntime.active()) {
+                    cancelBenchmark("Name parse cache requested but exact hooks/codec are unavailable"); return;
+                }
+                NameParseRuntime.metadata(metadata);
                 metadata.setProperty("terrainStatusAtSamplingStart", TerrainControl.status());
                 countersStarted = true;
             }
@@ -335,6 +349,7 @@ public final class RenderRuntime {
         properties.setProperty("cacheActive", String.valueOf(enabled && !failed && CACHE.hits > benchHits));
         TerrainControl.export(properties);
         com.atw.renderboost.terrain.TerrainRuntime.exportDelta(properties, benchTerrain);
+        NameParseRuntime.exportDelta(properties, benchNames);
         String result = String.format(Locale.ROOT, "%d frames: median %.3fms, p95 %.3fms, p99 %.3fms, avg %.2f FPS",
                 s.samples, s.medianMs, s.p95Ms, s.p99Ms, s.averageFps);
         session = null; scene = null;

@@ -10,7 +10,7 @@ weave {
         name = "ATW Render Boost"
         modId = "atw-render-boost"
         entryPoints = listOf("com.atw.renderboost.RenderBoostMod")
-        hooks = listOf("com.atw.renderboost.hook.FrameHook", "com.atw.renderboost.hook.FrameErrorHook", "com.atw.renderboost.hook.FontHook", "com.atw.renderboost.hook.HudHook", "com.atw.renderboost.hook.TerrainHook", "com.atw.renderboost.hook.NameProbeHook")
+        hooks = listOf("com.atw.renderboost.hook.FrameHook", "com.atw.renderboost.hook.FrameErrorHook", "com.atw.renderboost.hook.FontHook", "com.atw.renderboost.hook.HudHook", "com.atw.renderboost.hook.TerrainHook", "com.atw.renderboost.hook.NameProbeHook", "com.atw.renderboost.hook.NameParseHook")
         mcpMappings()
     }
     version("1.8.9")
@@ -99,6 +99,36 @@ if (nameCapturesRequired) {
     }
 }
 tasks.test {
+    val startupMode = providers.gradleProperty("nameCodecStartupTests").orElse("off").get()
+    check(startupMode in listOf("off", "required")) { "nameCodecStartupTests must be off or required" }
+    val startupRequired = startupMode == "required"
+    inputs.property("nameCodecStartupRequired", startupRequired)
+    if (startupRequired) {
+        check(nameCaptureMode != "public") { "Startup metadata proof requires private name/codec captures" }
+        val startupRoot=file("../../upgrade-work/environment-20261005/name-parse-cache/hookstage")
+        check(startupRoot.listFiles()?.count { it.name.endsWith(".mismatch.properties") } == 10) { "Startup proof requires all ten actual metadata reports" }
+        inputs.files(fileTree(startupRoot) { include("*.mismatch.properties") })
+        systemProperty("atwboost.nameCodecStartupRoot",startupRoot.absolutePath)
+    } else {
+        useJUnitPlatform { excludeTags("private-name-codec-startup") }
+        doFirst { println("Name codec startup metadata proof EXCLUDED") }
+    }
+    val codecMode = providers.gradleProperty("nameCodecCaptureTests").orElse(if (nameCaptureMode == "public") "public" else "auto").get()
+    check(codecMode in listOf("auto", "required", "public")) { "nameCodecCaptureTests must be auto, required, or public" }
+    val codecPointer = nameProbePrivateRoot.resolve("codec-capture-path.txt")
+    val codecRequired = codecMode == "required" || (codecMode == "auto" && codecPointer.isFile)
+    inputs.property("nameCodecCapturesRequired", codecRequired)
+    if (codecRequired) {
+        check(codecPointer.isFile) { "Missing private codec pointer" }
+        val codecRoot = file(codecPointer.readText().trim())
+        check(codecRoot.toPath().toAbsolutePath().normalize().startsWith(nameProbePrivateRoot.toPath().toAbsolutePath().normalize())) { "Codec inputs must remain private and read in place" }
+        check(codecRoot.listFiles()?.count { it.name.endsWith(".live.class") } == 12) { "Codec proof requires twelve actual inputs including Codec interface" }
+        inputs.files(fileTree(codecRoot) { include("*.live.class", "capture-report.txt") })
+        systemProperty("atwboost.nameCodecCaptureRoot", codecRoot.absolutePath)
+    } else {
+        useJUnitPlatform { excludeTags("private-name-codec-capture") }
+        doFirst { println("Name codec private proof EXCLUDED: public/state tests only") }
+    }
     val nameRestartMode = providers.gradleProperty("nameRestartCaptureTests").orElse("off").get()
     check(nameRestartMode in listOf("off", "required")) { "nameRestartCaptureTests must be off or required" }
     val nameRestartRequired = nameRestartMode == "required"
