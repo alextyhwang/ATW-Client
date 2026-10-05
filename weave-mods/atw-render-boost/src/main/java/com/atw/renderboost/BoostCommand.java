@@ -14,6 +14,10 @@ public final class BoostCommand extends Command {
         String action = args.length > 1 ? args[1].toLowerCase(java.util.Locale.ROOT) : "status";
         try {
             switch (action) {
+                case "probe10":
+                    if (args.length > 3) throw new IllegalArgumentException("probe10 counters|timing|status|stop");
+                    RenderRuntime.nameProbe(args.length > 2 ? args[2].toLowerCase(java.util.Locale.ROOT) : "status");
+                    break;
                 case "terrain":
                     if (args.length > 3) throw new IllegalArgumentException("terrain on|off|status");
                     String terrainAction = args.length > 2 ? args[2].toLowerCase(java.util.Locale.ROOT) : "status";
@@ -37,7 +41,7 @@ public final class BoostCommand extends Command {
                     break;
                 case "cancel": RenderRuntime.cancelBenchmark("Cancelled by command"); break;
                 case "status": RenderRuntime.message(RenderRuntime.status()); break;
-                default: RenderRuntime.message("/atwboost on|off|toggle|clear|status|terrain on|off|status|bench [30] [10] [stationary|moving]|cancel");
+                default: RenderRuntime.message("/atwboost on|off|toggle|clear|status|terrain on|off|status|probe10 counters|timing|status|stop|bench [30] [10] [stationary|moving]|cancel");
             }
         } catch (IllegalArgumentException | IllegalStateException e) { RenderRuntime.message(e.getMessage()); }
     }
@@ -45,8 +49,11 @@ public final class BoostCommand extends Command {
         if (args.length == 2 && args[0].equalsIgnoreCase("terrain"))
             return java.util.stream.Stream.of("on", "off", "status")
                     .filter(s -> s.startsWith(args[1].toLowerCase(java.util.Locale.ROOT))).toArray(String[]::new);
+        if (args.length == 2 && args[0].equalsIgnoreCase("probe10"))
+            return java.util.stream.Stream.of("counters", "timing", "status", "stop")
+                    .filter(s -> s.startsWith(args[1].toLowerCase(java.util.Locale.ROOT))).toArray(String[]::new);
         if (args.length != 1) return new String[0];
-        return java.util.stream.Stream.of("on", "off", "toggle", "clear", "status", "terrain", "bench", "cancel")
+        return java.util.stream.Stream.of("on", "off", "toggle", "clear", "status", "terrain", "probe10", "bench", "cancel")
                 .filter(s -> s.startsWith(args[0].toLowerCase(java.util.Locale.ROOT))).toArray(String[]::new);
     }
 }

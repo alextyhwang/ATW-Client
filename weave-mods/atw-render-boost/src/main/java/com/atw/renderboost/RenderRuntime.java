@@ -6,6 +6,7 @@ import com.atw.renderboost.benchmark.BenchmarkSceneGuard;
 import com.atw.renderboost.cache.GlyphCache;
 import com.atw.renderboost.cache.GlyphKey;
 import com.atw.renderboost.terrain.TerrainControl;
+import com.atw.renderboost.probe.NameProbeRuntime;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
@@ -155,6 +156,8 @@ public final class RenderRuntime {
         renderThread = Thread.currentThread();
         com.atw.renderboost.terrain.TerrainRuntime.frameThread();
         long now = System.nanoTime();
+        NameProbeRuntime.frame(now);
+        exportNameProbe();
         frameStarted = now;
         hudDepth = glyphDepth = 0;
         hudNs = 0;
@@ -182,6 +185,8 @@ public final class RenderRuntime {
     }
     public static void frameEnd() {
         lastWorkNs = System.nanoTime() - frameStarted;
+        NameProbeRuntime.frameEnd(frameStarted + lastWorkNs);
+        exportNameProbe();
         lastHudNs = hudNs;
         if (hudDepth != 0 || glyphDepth != 0 || CACHE.recording()) {
             fail(new IllegalStateException("Unbalanced rendering scope"));
@@ -193,6 +198,10 @@ public final class RenderRuntime {
         benchmark(seconds, warmupSeconds, false);
     }
     public static void benchmark(int seconds, int warmupSeconds, boolean moving) {
+        // Poll expiration and drain its result before admitting a new operation.
+        NameProbeRuntime.status();
+        exportNameProbe();
+        if (NameProbeRuntime.collecting) throw new IllegalStateException("Stop name probe before benchmarking");
         if (session != null || exporting) throw new IllegalStateException("Benchmark/export already active");
         session = new BenchmarkSession(seconds, warmupSeconds);
         requestedAt = System.nanoTime();
@@ -207,6 +216,38 @@ public final class RenderRuntime {
                 + ", motion=" + (moving ? "moving" : "stationary")
                 + (moving ? ". Close chat; follow the same manually controlled route."
                           : ". Close chat; hold camera still."));
+    }
+    public static void nameProbe(String mode) {
+        switch (mode) {
+            case "counters": case "timing":
+                NameProbeRuntime.status();
+                exportNameProbe();
+                if (session != null || exporting) throw new IllegalStateException("Cancel benchmark / await export before explicitly starting probe");
+                NameProbeRuntime.start(mode.equals("timing")); break;
+            case "stop": NameProbeRuntime.stop(); exportNameProbe(); break;
+            case "status": exportNameProbe(); break;
+            default: throw new IllegalArgumentException("probe10 counters|timing|status|stop");
+        }
+        String status = NameProbeRuntime.status();
+        exportNameProbe();
+        message(status);
+    }
+    private static void exportNameProbe() {
+        Properties p = NameProbeRuntime.takeCompleted();
+        if (p == null) return;
+        exporting = true;
+        EXPORT.execute(() -> {
+            try {
+                Path dir = Paths.get(System.getProperty("user.home"), ".weave", "atw-render-boost", "name-probes");
+                Files.createDirectories(dir);
+                Path file = dir.resolve(Instant.now().toString().replace(':','-') + "-" + p.getProperty("mode") + ".properties");
+                try (OutputStream out = Files.newOutputStream(file, StandardOpenOption.CREATE_NEW)) {
+                    p.store(out,"ATW bounded name probe; counts and inclusive sampled durations only; no identities/payloads");
+                }
+                messages.add("Name probe automatically OFF; exported: " + file);
+            } catch (IOException e) { messages.add("Name probe OFF; export failed: " + e.getMessage()); }
+            finally { exporting = false; }
+        });
     }
     public static void cancelBenchmark(String reason) {
         if (session == null) return;

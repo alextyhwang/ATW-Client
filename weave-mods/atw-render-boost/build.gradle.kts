@@ -10,7 +10,7 @@ weave {
         name = "ATW Render Boost"
         modId = "atw-render-boost"
         entryPoints = listOf("com.atw.renderboost.RenderBoostMod")
-        hooks = listOf("com.atw.renderboost.hook.FrameHook", "com.atw.renderboost.hook.FrameErrorHook", "com.atw.renderboost.hook.FontHook", "com.atw.renderboost.hook.HudHook", "com.atw.renderboost.hook.TerrainHook")
+        hooks = listOf("com.atw.renderboost.hook.FrameHook", "com.atw.renderboost.hook.FrameErrorHook", "com.atw.renderboost.hook.FontHook", "com.atw.renderboost.hook.HudHook", "com.atw.renderboost.hook.TerrainHook", "com.atw.renderboost.hook.NameProbeHook")
         mcpMappings()
     }
     version("1.8.9")
@@ -83,7 +83,44 @@ if (terrainRestartsRequired) {
                 "Missing private restart capture: $directory/$name"
             }
 }
+val nameCaptureMode = providers.gradleProperty("nameCaptureTests").orElse(
+    if (terrainCaptureMode == "public") "public" else "auto").get()
+check(nameCaptureMode in listOf("auto", "required", "public")) { "nameCaptureTests must be auto, required, or public" }
+val nameProbePrivateRoot = file("../../upgrade-work/environment-20261005/name-render-probe")
+val nameLatest = nameProbePrivateRoot.resolve("latest-capture-path.txt")
+val nameCaptureRoot = if (nameLatest.isFile) file(nameLatest.readText().trim()) else nameProbePrivateRoot.resolve("absent")
+val nameCapturesRequired = nameCaptureMode == "required" || (nameCaptureMode == "auto" && nameLatest.isFile)
+if (nameCapturesRequired) {
+    check(nameCaptureRoot.toPath().toAbsolutePath().normalize().startsWith(nameProbePrivateRoot.toPath().toAbsolutePath().normalize())) {
+        "Name capture tests must read private inputs in place under name-render-probe"
+    }
+    check(nameCaptureRoot.listFiles()?.count { it.name.endsWith(".live.class") } == 11) {
+        "Private name probe proof requires all eleven actual captured inputs"
+    }
+}
 tasks.test {
+    val nameRestartMode = providers.gradleProperty("nameRestartCaptureTests").orElse("off").get()
+    check(nameRestartMode in listOf("off", "required")) { "nameRestartCaptureTests must be off or required" }
+    val nameRestartRequired = nameRestartMode == "required"
+    inputs.property("nameRestartRequired", nameRestartRequired)
+    if (nameRestartRequired) {
+        check(nameCapturesRequired) { "Name restart proof requires private name captures" }
+        val pointer = nameProbePrivateRoot.resolve("restart-capture-path.txt")
+        check(pointer.isFile) { "Missing private name restart pointer" }
+        val restartRoot = file(pointer.readText().trim())
+        check(restartRoot.toPath().toAbsolutePath().normalize().startsWith(nameProbePrivateRoot.toPath().toAbsolutePath().normalize())) { "Restart inputs must remain private" }
+        check(restartRoot.listFiles()?.count { it.name.endsWith(".live.class") } == 11) { "Name restart proof requires eleven inputs" }
+        inputs.files(fileTree(restartRoot) { include("*.live.class", "capture-report.txt") })
+        systemProperty("atwboost.nameRestartCaptureRoot", restartRoot.absolutePath)
+    } else {
+        useJUnitPlatform { excludeTags("private-name-restart") }
+        doFirst { println("Name restart capture proof EXCLUDED: no cross-startup proof claimed") }
+    }
+    inputs.property("nameCapturesRequired", nameCapturesRequired)
+    if (nameCapturesRequired) {
+        inputs.files(fileTree(nameCaptureRoot) { include("*.live.class", "capture-report.txt") })
+        systemProperty("atwboost.nameCaptureRoot", nameCaptureRoot.absolutePath)
+    }
     inputs.property("terrainCapturesRequired", terrainCapturesRequired)
     inputs.property("terrainRestartsRequired", terrainRestartsRequired)
     if (terrainRestartsRequired) {
@@ -95,8 +132,11 @@ tasks.test {
     useJUnitPlatform {
         if (!terrainCapturesRequired) excludeTags("private-terrain-capture")
         if (!terrainRestartsRequired) excludeTags("private-terrain-restart-capture")
+        if (!nameCapturesRequired) excludeTags("private-name-capture")
     }
     doFirst {
+        logger.lifecycle(if (nameCapturesRequired) "Name private capture proof ENABLED: eleven inputs read in place"
+            else "Name private capture proof EXCLUDED: public executable/state tests only")
         logger.lifecycle(if (terrainCapturesRequired)
             "Terrain private capture acceptance ENABLED: all 30 local fixtures present"
         else "Terrain private capture acceptance EXCLUDED: public/state tests only; no actual-capture validation claimed")

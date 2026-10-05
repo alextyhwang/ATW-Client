@@ -8,6 +8,118 @@ the captured Lunar font path is incompatible with this per-glyph cache.
 
 ## Exact behavior
 
+### Bounded living-name diagnostic (default OFF)
+
+`/atwboost probe10 counters` starts a ten-second counter control.
+`/atwboost probe10 timing` starts the same counters plus inclusive wall/thread-CPU
+durations on frame indices 0, 32, 64, ... . `/atwboost probe10 status` reports state;
+`/atwboost probe10 stop` stops early. These commands are local CommandBus commands.
+There is no persistent switch, automatic startup collection, cache, replay, name
+suppression, getter replacement, or production optimization in this probe.
+An active benchmark/export prevents starting a probe; an active probe prevents a
+benchmark. Finish collection/export before benchmarking with the probe OFF.
+
+The optional hook independently admits twelve exact method bodies/descriptors in
+seven classes using method-only executable fingerprints from eleven private actual
+2026-10-05 retransformation inputs. Fingerprints inspect the provided ClassNode
+directly and use the existing relocatable ASM operand tags. They do not serialize
+the node or compare a post-Weave whole-class shape. Existing ATWHooks in other
+methods neither block nor authorize these diagnostics. Missing/unknown methods
+explicitly report UNAVAILABLE and execute their originals. No optimization gate,
+terrain evidence resource, or fixture is relaxed or updated.
+
+All original instruction nodes, methods, access flags, return objects/values and
+exception-handler priority remain. A finally wrapper rethrows the same original
+Throwable. Normal rendering, visibility decisions, GL calls, Lunar/Weave events,
+and Overlay's one full normal player render remain in their original paths.
+The inactive entry reads one OFF branch and skips collector entry; return/finally
+cleanup skips the collector for token zero. The wrapper itself still has a small
+fixed inactive cost, which needs comparison against the prior jar.
+
+Only the outermost `RendererLivingEntity.renderName(Entity/EntityLivingBase,DDD)`
+counts as a name invocation. Its overload forwarding shares a depth counter,
+entity bucket and frame mask. Nested actual calls count separately for
+display-component construction, Entity/EntityPlayer display-name getters,
+Entity hover getter, Adventure-component font width, Minecraft-to-Adventure
+component/style bridges, living-label, sneaking-label, and draw-label subpasses.
+Calls outside that outer name invocation contribute nothing. Buckets follow the
+runtime class hierarchy: EntityPlayer (including player-shaped NPCs), armor stand,
+and other living. There are no network/player-identity checks or extra entity
+getters. Subclass overrides not among these captured method owners are outside
+getter coverage; zero calls do not prove zero work. Direct show-entity encode/decode
+implementations and a complete world-render phase are unavailable in these inputs;
+their original calls run, with cost included in supported enclosing scopes.
+
+Storage is fixed: three buckets, ten metrics, a 64-entry scope stack, fixed timing
+scratch, and bounded coverage metadata. Overflow skips deeper scopes and increments
+a counter; cleanup restores the outer stack. Nothing retains entity/component
+objects, names, UUIDs, text/NBT, semantic keys, or produced values. Safe redundancy
+is unresolved, so this probe makes no reuse/cache eligibility claim.
+
+Every active scope entry/exit shares a monotonic deadline check in **both** modes.
+The counter control has no scope-duration or CPU reads; these common deadline
+reads are part of its overhead. Timing uses ThreadMXBean only if current-thread
+CPU timing is already supported and enabled; it never enables that VM facility.
+Unavailable/failed CPU readings retain wall timing and export explicit source and
+valid CPU sample counts. All nested durations are **inclusive and overlapping**;
+never sum construction, getters, hover, width and label times into a frame budget.
+Timing is committed only for completed sampled frames; the final incomplete frame
+and in-flight scopes are marked abandoned and their durations discarded. Counts
+cover admitted entries in all frames, including the final partial frame.
+
+The ten-second deadline automatically stops collection at the next frame/scope
+boundary (or status call). A paused/stalled render thread has no new samples or
+background timer; a late returning invocation is discarded before more collection.
+Elapsed time can exceed ten seconds by that boundary delay. Export is deferred
+until OFF and uses the existing export executor, with no disk writes during
+collection. One properties file goes to
+`<Java user.home>/.weave/atw-render-boost/name-probes/` (package-private data/home).
+It contains counts, completed sampled durations, frame interval/work aggregates,
+coverage, overflow/abandonment and CPU availability; no captured bytes or payloads.
+
+For attribution, use completed sampled outer-name CPU/wall totals across the three
+buckets and compare with the completed sampled frame totals, qualifying CPU sample
+coverage. Nested metrics explain portions of outer-name cost; they are not additive.
+Raw sampled durations are unscaled; multiplying by 32 is an estimate, not measured
+all-frame time. Compare same-scene counter versus timing frame-interval throughput
+(`frameIntervals * 1e9 / frameIntervalWallNs`) and mean frame-work wall time to
+estimate added timing overhead. Also compare the new jar OFF with the prior jar
+using the existing benchmark. Crowd, camera, scene and elapsed order remain manual
+controls; neither a lobby class mix nor these timings establishes an FPS gain.
+
+The private inputs are retransformation-stage evidence, already containing existing
+Weave/ATW work. A real startup hook stage may differ: unknown target methods stay
+UNAVAILABLE, and later transformers may move/add work after these hooks. Parent
+installation, restart, startup coverage, visual/exception parity, and repeated
+2560x1421 moving multiplayer measurement remain required before any optimization.
+Build proof alone establishes no live durations or benefit. The previous terrain
+ON ~547 versus OFF ~566 FPS pair still demonstrated no gain.
+
+The name gate compares detached methods at Weave 1.4.1's temporary conflict-name
+stage. It proves visible MixinMerged provenance and same-owner declarations before
+removing loader prefixes from comparisons. Four explicitly enumerated Lunar lambda
+names also contain the last six digits of their shared Mixin session UUID; only
+those four names are normalized after the suffix and captured mixin/priority match.
+Actual method names and operands remain untouched, and all twelve original body
+fingerprints remain exact. Unknown references, metadata, sessions and bodies retain
+their original paths. A fresh local startup admitted all twelve diagnostic hooks.
+This validates coverage, not an optimization or FPS gain.
+
+Private capture tests read the eleven inputs in place only with
+`-PnameCaptureTests=required` (or auto when local captures exist). Public mode
+`-PterrainCaptureTests=public -PnameCaptureTests=public` explicitly excludes all
+private name/terrain/restart tests. New private tests check the twelve captured
+method gates, original instructions/handlers, ASM verification, relocation, node
+subclasses, mutation rejection, and execution of the actual captured width body
+with controlled dependency stubs. Public tests execute production wrappers and
+collector paths for disabled, nested, exceptions, returns, finite stop, frame-mask,
+matched timing windows, CPU fallback, overflow and class buckets.
+`-PnameRestartCaptureTests=required` additionally checks the two original bodies
+from a second startup in place; it requires the private name inputs. Without this
+option, cross-startup capture proof is explicitly excluded. The complete local
+suite passed 144 tests; public mode passed 108 tests. These counts include all
+existing terrain and frame-policy tests, not just name diagnostics.
+
 All optimizations default **OFF**. Frame errors and glyph caching share the existing
 switch; terrain has an independent switch. Neither switch is persisted.
 It preserves Minecraft/Lunar settings, resolution, FPS cap, VSync, VBO,
