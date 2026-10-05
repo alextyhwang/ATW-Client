@@ -8,6 +8,7 @@ public final class BenchmarkSession {
     private final long[] samples = new long[MAX_SAMPLES];
     private int count;
     private boolean complete;
+    private TerrainBenchmarkGuard terrainGuard;
 
     public BenchmarkSession(int seconds, int warmupSeconds) {
         if (seconds < 5 || seconds > 240 || warmupSeconds < 1 || warmupSeconds > 120)
@@ -30,6 +31,13 @@ public final class BenchmarkSession {
         previous = now;
         complete = now - samplingStarted >= durationNs;
         return complete;
+    }
+    /** Check before recording/completing, and establish validity at the warm-up boundary. */
+    public boolean frame(long now, TerrainBenchmarkGuard.State terrain) {
+        if (terrainGuard != null) terrainGuard.check(terrain);
+        boolean done = frame(now);
+        if (sampling() && terrainGuard == null) terrainGuard = new TerrainBenchmarkGuard(terrain);
+        return done;
     }
     public int count() { return count; }
     public boolean sampling() { return samplingStarted != -1; }

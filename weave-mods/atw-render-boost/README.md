@@ -2,13 +2,14 @@
 
 Minecraft **1.8.9 only**, Weave Gradle/API **1.4.1**, Java 17 build toolchain,
 Java 8 class files. An opt-in frame error-poll policy, a bounded experimental
-default-font geometry cache, and a local frame benchmark. **No measured FPS improvement is claimed. Double FPS
+default-font geometry cache, a guarded terrain VAO cache, and a local frame benchmark. **No measured FPS improvement is claimed. Double FPS
 has not been demonstrated.** The integrated jar reached a live local world;
 the captured Lunar font path is incompatible with this per-glyph cache.
 
 ## Exact behavior
 
-Both optimizations default **OFF**, and their shared runtime switch is not persisted.
+All optimizations default **OFF**. Frame errors and glyph caching share the existing
+switch; terrain has an independent switch. Neither switch is persisted.
 It preserves Minecraft/Lunar settings, resolution, FPS cap, VSync, VBO,
 render distance, textures, particles, player rendering and chams. It neither
 culls players nor changes gameplay. It adds no packet hook or packet generation;
@@ -139,6 +140,48 @@ renders outside the HUD scope are not cached. These checks, key allocations,
 misses, and compilation can cost more than they save; this is opt-in until live
 testing demonstrates benefit and unchanged rendering.
 
+### Terrain VAO cache
+
+`/atwboost terrain on|off|status` controls only the terrain cache. It requires
+acceptance of the exact executable fingerprints and class shapes from **15 actual
+captured classes** before any cache can activate. Missing, already-loaded,
+modified, or rejected prerequisites leave the original bind/pointer path running.
+The reference includes the actual Lunar terrain loop, buffer upload/delete/region
+assignment, chunk matrices, format, GL wrappers, context lifecycle, and nullable
+matrix-bridge owner. Every original draw, current count/mode, matrix call, order,
+and geometry remains in place. This cache never batches draws.
+
+Only the admitted standalone VBO path with the exact 28-byte BLOCK layout is
+eligible. RenderRegions and shaders must be OFF. Guards also require the render
+thread, an unnested outer terrain scope, exact chunk/buffer classes, a live
+compatibility GL context, VAO 0, texture-coordinate selector 0, no program or
+display-list recording, and only the expected legacy arrays enabled. An active
+Lunar modelview callback reference is opaque and causes fallback. A modelview
+flag with a **null** reference is allowed by the captured null-check shape;
+the injected boolean accessor neither instantiates nor calls the unloaded matrix
+type. All original matrix calls remain unchanged. Status exposes the actual
+fallback reason, including missing hooks and an active opaque bridge.
+
+A hit replaces the admitted seven-call bind/pointer sequence with a VAO bind
+and the **original VBO bind**. Preserving that bind also preserves the global
+ARRAY_BUFFER association. Misses execute the original pointers on a newly owned
+VAO. At layer end, VAO 0 and the final original VBO descriptors are restored
+before the unchanged ARRAY_BUFFER 0 epilogue and outer array disables. Empty
+layers leave descriptors alone. VAOs are bounded at **4,096**, keyed by buffer
+identity, live VBO name, exact format identity, resource generation, and actual
+context lifetime. Upload, delete, region reassignment, reload, world changes and
+toggles invalidate entries; context replacement abandons old names without
+deleting objects in a different context. Failures latch fallback for the session.
+Added setup failure recovery restores the default client selector before any
+original pointers, including a first miss that fails with UV1 selected. Cleanup
+failure propagates the primary exception with cleanup suppressed and stops the draw.
+
+Scope queries, chunk eligibility scans, misses and restoration have costs.
+Offline parity tests do not establish live visual parity, cache activation or
+FPS improvement. Parent validation must confirm observed hooks and measured
+cache hits, unchanged features and draw resolution, then compare terrain OFF/ON
+with Regions OFF. Do not stack the independent RenderRegions candidate.
+
 ## Build
 
 ```powershell
@@ -171,25 +214,59 @@ Artifacts:
 
 The plugin generates `weave.mod.json`: name `ATW Render Boost`, modId
 `atw-render-boost`, namespace `mcp-named`, compiledFor `1.8.9`, entrypoint
-`com.atw.renderboost.RenderBoostMod`, and four hooks. Entrypoint implements
+`com.atw.renderboost.RenderBoostMod`, and five hooks. Entrypoint implements
 `preInit(Instrumentation)` and `init()`, using `net.weavemc.api`.
 
 Integration is the parent's responsibility: use Weave **1.4.1**, make this jar
 available in the package's private `data/home/.weave/mods`, and restart Minecraft.
 Do not combine with the legacy 0.2.6 loader. This module performs no installation.
 
+Terrain hook tests require 15 private local capture fixtures. Their full class
+bytes are ignored and must never be staged or published. See
+[fixture provenance and acquisition](src/test/resources/terrain/README.md).
+The full local pass count requires all 30 fixtures (15 previous post-load captures
+and 15 serialized before-hook inputs). A clean checkout explicitly runs 80
+public/state tests; required private mode fails if any fixture is absent.
+
+Terrain admission supports only the two observed member layouts. The hook-stage
+profile was proved against every one of the previous captures' **809 executable
+methods**, including draw/count/mode, matrices, lifecycle, BLOCK layout, context,
+and the nullable Lunar bridge gate. All method operands/targets/handlers and field
+types/access/ConstantValue remain checked. Method and field order are exact for
+each profile; arbitrary sorting, extra members, duplicates, access widening and
+instruction changes are rejected.
+
+Only a detached comparison tree normalizes the observed Weave conflict prefixes
+and the exact five RenderGlobal symbols derived from `MixinMerged.sessionId`.
+Merged descriptor/mixin/priority/session metadata must agree; real calls, field
+references and bootstrap handles must resolve to the real declarations before
+comparison. The only access difference supported is the observed PUBLIC bit on
+eight `<clinit>()V` declarations; its body is unchanged and the JVM ignores that
+bit ([JVMS 4.6](https://docs.oracle.com/javase/specs/jvms/se17/html/jvms-4.html#jvms-4.6)).
+The real hook node keeps loader-owned temporary names and every original draw,
+matrix and state operation. The bridge accessor resolves its exact merged input
+without renaming it or calling the opaque matrix type.
+
+The **99 private / 80 public** offline tests do not establish live hook admission,
+GPU state/visual parity, cache activity or an FPS gain for this profile. All 15
+prerequisites, defaults OFF, Regions/shaders/active-bridge fallbacks, selector-safe
+recovery and failed/mixed-mode measurement rejection remain required.
+
 ## Commands and benchmark
 
 - `/atwboost on`, `/atwboost off`, `/atwboost toggle` — shared experimental switch for frame error policy and eligible glyph cache, same jar/build.
 - `/atwboost status` — requested mode, actual frame error policy, observed hooks, cache counters/failures, benchmark state.
 - `/atwboost clear` — queued cache invalidation.
-- `/atwboost bench [durationSeconds=30] [warmupSeconds=10]` — measure one mode.
+- `/atwboost terrain on|off|status` — independent, default-OFF terrain cache switch and diagnostics.
+- `/atwboost bench [durationSeconds=30] [warmupSeconds=10] [stationary|moving]` — measure one mode; defaults to stationary.
 - `/atwboost cancel` — discard a running benchmark.
 
 Duration is 5–240 seconds; warm-up is 1–120 seconds. The command arms a run;
 sampling starts after chat closes in a focused, unpaused world. Both the warm-up
-and its crossing interval are excluded. Keep the camera and player stationary.
-A world/focus/menu/camera/window/tracked-setting change, toggle, reload, or cache
+and its crossing interval are excluded. Stationary mode rejects camera/player
+position, yaw or pitch changes. Explicit `moving` mode permits only those camera
+changes, for a user-driven route; the mod never generates movement or server input.
+Both modes reject world/focus/menu/window/tracked-setting changes, toggle, reload, or cache
 invalidation aborts the run with **no results exported**. The benchmark tracks
 resolution, fullscreen, FPS cap, VSync, VBO, render distance, fancy graphics,
 GUI scale, FOV, particles, anaglyph, and view bobbing. Other Lunar/OptiFine/mod
@@ -214,6 +291,30 @@ In package mode, this should be under the package's private `data/home`; exports
 are created only when an installed mod completes a benchmark. CSV includes every
 measured interval in nanoseconds. Summary includes GPU/driver/Java strings,
 camera and tracked settings, mode, hook observation, cache failure and activity.
+`benchmarkMotionMode`, `cameraAtWarmupStart`, `cameraStart` and `cameraEnd`
+qualify camera behavior. Measured intervals also export min/max/mean loaded player
+and entity counts using collection sizes, without identities; these include the
+local player and are not counts of visible or rendered entities.
+Render-thread start/end snapshots include `minecraftWidthStart/End`,
+`minecraftHeightStart/End`, `displayWidthStart/End`, `displayHeightStart/End`,
+`displayFullscreenStart/End` and `glViewportStart/End` (x,y,width,height).
+The Display values come from LWJGL; viewport uses two GL_VIEWPORT reads per run,
+without changing GL state or polling errors. Window position, Display dimensions
+and fullscreen also remain guarded throughout a moving run. These exported
+dimensions distinguish Minecraft fields, drawable dimensions and actual viewport
+from the decorated Windows window rectangle.
+`terrainRequested`, `terrainHooksInstalled`, `terrainFallback` and `terrainFailed`
+describe terrain eligibility. Terrain hit/miss/allocation/eviction/invalidation,
+setup/restoration/scope, standalone draw and submitted-vertex counters are
+measured-window deltas. Terrain-ON sampling requires eligibility at its start;
+driver/reader failures, observed GL errors, guard rejection, buffer fallback, or
+mode/evidence changes during measurement abort before another sample or completion,
+with **no result exported**. Rejection/fallback counters catch transitions even if
+eligibility returns between samples. OFF baselines remain valid without terrain
+hooks or hits. `terrainCacheActive` requires current eligibility, no failure/error
+fallback, and hits in that window;
+`terrainOwnedVaos` is the end snapshot, not a delta. Draw counts read the live
+buffer count after the unchanged draw and do not include RenderRegions batching.
 `optimizationRequested` records the switch; `frameErrorMode` is
 `original-pre-and-post`, `sampled-post-250ms`, `fallback-hook-not-observed`, or
 `fallback-gl-error-original-pre-and-post`. `frameErrorModeAtSamplingStart` and
@@ -237,7 +338,26 @@ the existing chams overlay. Keep the existing visual settings unchanged.
 An existing FPS cap/VSync may hide throughput gains; report that limit instead
 of interpreting capped FPS as rendering capacity. Compare median/tail frame
 times as well as aggregate FPS. Only measured, repeatable results can support a
-speedup claim; a whole-game 2× result is not implied by fewer glyph GL calls.
+speedup claim. Terrain acceptance targets the user's normal multiplayer player and
+movement workload at confirmed windowed 2560×1421 with unchanged quality; a small-resolution
+stationary control does not establish that outcome.
+
+Temporary private hook-stage diagnostics are disabled unless the launch includes
+`-Datwboost.terrainEvidenceOutput=<absolute private directory>`. The directory must
+already exist at the Performance checkout's
+`upgrade-work/environment-20261005/terrain-hookstage`; other destinations are rejected.
+It captures only the 15 terrain hook targets, once each, before terrain mutations.
+Files contain serialized hook-input ClassNodes and private shape/fingerprint mismatch
+reports, never raw auth data. Serialization uses no frame computation, GL calls,
+class resolution, or prerequisite activation. Existing gates and default OFF remain.
+Do not publish or bundle these files, use broad loader bytecode dumping, or update
+allowlist fixtures automatically. The parent owns opt-in, installation and restart.
+
+Terrain executable fingerprints use stable type tags for ASM Type, Handle and
+ConstantDynamic operands because Weave relocates ASM packages at mod load time.
+All operand values and the original evidence hashes remain exact. Local tests
+exercise the production gate under that relocation, including both captured
+Config/RenderGlobal restarts; no new executable shape is admitted by this fix.
 
 Local capture provenance, reproduction results, and the profile-based follow-up
 proposal are in `upgrade-work/renderboost-live/REPORT.md` at the repository root.
