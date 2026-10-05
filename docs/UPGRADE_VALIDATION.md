@@ -84,6 +84,13 @@ behavior still require live multiplayer coverage.
 
 ## Performance evidence
 
+The latest acceptance criterion is a substantial measured improvement on Hypixel
+with players and movement; an exact 2× ratio is no longer required. The local
+world is a screening test. See [recovered environment evidence](ENVIRONMENT_RECOVERY.md)
+for the driver diagnosis, fair legacy control and subsequent measurements.
+The 12 FPS experiments below are historical results from the forced-VSync
+environment and must not be used as the denominator of an optimization claim.
+
 The original baseline already uses the NVIDIA RTX 4070 through OpenGL.
 Merely selecting or using the GPU is not a new optimization.
 
@@ -152,7 +159,7 @@ than 0.5%, while its p95/p99 frame times worsened substantially. OFF restored
 both checks and the earlier frame-time distribution. This candidate is therefore
 unsuccessful on this runtime and remains OFF by default and in the final session.
 
-**The requested 2× FPS improvement was not achieved.** These experiments do not
+**No substantial mod improvement has been established.** These experiments do not
 justify claiming that a future renderer optimization cannot help. They establish
 that neither implemented error-poll policy delivered the requested improvement
 in this scene. Hypixel performance remains unmeasured.
