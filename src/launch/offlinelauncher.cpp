@@ -25,6 +25,7 @@
 
 #include "util/fs.h"
 #include "util/utils.h"
+#include "util/nativeinspection.h"
 
 #ifdef Q_OS_WIN
 #ifndef NOMINMAX
@@ -105,6 +106,14 @@ static QProcessEnvironment cleanJavaEnvironment() {
     for (const char* name : {"JAVA_OPTS", "_JAVA_OPTS", "JAVA_OPTIONS", "_JAVA_OPTIONS",
                             "JAVA_TOOL_OPTIONS", "_JAVA_TOOL_OPTIONS", "JDK_JAVA_OPTIONS", "_JDK_JAVA_OPTIONS"})
         env.remove(QString::fromLatin1(name));
+#ifdef Q_OS_MACOS
+    // Inspected Java/native slices must not be replaced by loader injection
+    // inherited from the host shell or another application.
+    const QStringList names = env.keys();
+    for (const QString& name : names) {
+        if (name.startsWith(QStringLiteral("DYLD_"))) env.remove(name);
+    }
+#endif
     return env;
 }
 
@@ -173,11 +182,11 @@ static void redactSessionTokens() {
 }
 
 static QString weaveRuntimeDirectory() {
-    return FS::combinePaths(QCoreApplication::applicationDirPath(), QStringLiteral("runtime/weave"));
+    return FS::combinePaths(FS::getPackageRoot(), QStringLiteral("runtime/weave"));
 }
 
 static QString weaveRepositoryDirectory() {
-    return FS::combinePaths(QCoreApplication::applicationDirPath(),
+    return FS::combinePaths(FS::getPackageRoot(),
                             QStringLiteral("data/home/.weave/.maven-repository"));
 }
 
@@ -494,6 +503,12 @@ bool OfflineLauncher::launch() {
         emit error("Game is already running.");
         return false;
     }
+#ifdef Q_OS_MACOS
+    if (!config.useWeave) {
+        emit error("This Mac build requires Lunar with Weave 1.4.1 and Java 17.");
+        return false;
+    }
+#endif
 
     process = new QProcess(qApp);
     connect(process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this, &OfflineLauncher::onProcessFinished);
@@ -510,7 +525,24 @@ bool OfflineLauncher::launch() {
     QDir().mkpath(logsDir);
     redactSessionTokens();
 
+#ifdef Q_OS_MACOS
+    QString preflightError;
+    const auto platform = NativeInspection::currentPlatform();
+    if (!NativeInspection::inspectMacJava17(executable, platform, &preflightError)) {
+        emit error(preflightError);
+        process->deleteLater();
+        process = nullptr;
+        return false;
+    }
+    // Mac admission reads release/Mach-O evidence. Do not execute an unknown
+    // Java binary just to find out whether it belongs to this platform.
+    JavaProbeResult javaProbe;
+    javaProbe.ok = true;
+    javaProbe.majorVersion = 17;
+#else
+    const auto platform = NativeInspection::currentPlatform();
     const JavaProbeResult javaProbe = probeJava(executable);
+#endif
     if (config.useWeave && (!javaProbe.ok || javaProbe.majorVersion < 17)) {
         const QString message = javaProbe.ok
             ? QStringLiteral("Weave 1.4.1 requires Java 17 or newer; detected Java %1. Use the package Java runtime.").arg(javaProbe.majorVersion)
@@ -521,7 +553,7 @@ bool OfflineLauncher::launch() {
         process = nullptr;
         return false;
     }
-#ifdef ATW_TEST_PORTABLE
+#if defined(ATW_TEST_PORTABLE) && !defined(Q_OS_MACOS)
     if (!javaProbe.ok)
         appendLauncherLog(QStringLiteral("[Java Optimizer] Java version probe failed: ") + javaProbe.output.trimmed().replace('\n', ' '));
     logLatencyDiagnostics(config, javaProbe);
@@ -546,7 +578,18 @@ bool OfflineLauncher::launch() {
 
     QStringList ichorClassPath = classPath;
 
-    QString nativesFile = Utils::getNativesFile(workingDirFiles, config.gameVersion);
+    QString nativeError;
+    const QString nativeArchiveStem = Utils::getNativesFile(workingDirFiles, config.gameVersion, platform, &nativeError);
+    QString nativesFile;
+    if (nativeArchiveStem.isEmpty() || !NativeInspection::prepareNativeArchive(
+            FS::combinePaths(workingDir, nativeArchiveStem + QStringLiteral(".zip")),
+            FS::getPackageRoot(),
+            platform, config.gameVersion, &nativesFile, &nativeError)) {
+        emit error(nativeError);
+        process->deleteLater();
+        process = nullptr;
+        return false;
+    }
 
     for(const QFileInfo& info : libsList) {
         classPath << info.absoluteFilePath();
@@ -565,6 +608,8 @@ bool OfflineLauncher::launch() {
          "-cp", classPath.join(QDir::listSeparator())
     };
 
+    // Preserve agent order. The verified extraction already exists, so the
+    // legacy agent's exists-only extractor does not write unvalidated files.
     args << Utils::getAgentFlags("NativesPrepare", nativesFile);
 
     if (config.enableLunarEnable) {
@@ -592,7 +637,7 @@ bool OfflineLauncher::launch() {
                     QStringLiteral("Weave-Loader-Agent-1.4.1.jar"));
     }
 
-#ifdef ATW_TEST_PORTABLE
+#if defined(ATW_TEST_PORTABLE) && !defined(Q_OS_MACOS)
     QStringList removedJvmArgs;
     args << buildProfileArgs(config, executable, javaProbe);
     args << sanitizeJvmArgs(QProcess::splitCommand(config.jvmArgs), &removedJvmArgs);
@@ -602,13 +647,35 @@ bool OfflineLauncher::launch() {
     args << sanitizeJvmArgs(QProcess::splitCommand(config.jvmArgs));
 #endif
 
+#ifdef Q_OS_MACOS
+    // Native loading and input selection are launcher-owned after custom args.
+    const QStringList macOwnedProperties{
+        QStringLiteral("java.home"), QStringLiteral("java.library.path"),
+        QStringLiteral("os.name"), QStringLiteral("os.arch"), QStringLiteral("sun.arch.data.model"),
+        QStringLiteral("org.lwjgl.librarypath"), QStringLiteral("net.java.games.input.librarypath"),
+        QStringLiteral("atw.input.macContinuity")
+    };
+    for (int index = args.size() - 1; index >= 0; --index) {
+        if (!args[index].startsWith(QStringLiteral("-D"))) continue;
+        const QString property = args[index].mid(2).section('=', 0, 0);
+        if (macOwnedProperties.contains(property) || property.startsWith(QStringLiteral("jna.")))
+            args.removeAt(index);
+    }
+    args << "-Djna.boot.library.path=" + nativesFile
+         << "-Djava.library.path=" + nativesFile
+         << "-Dorg.lwjgl.librarypath=" + nativesFile
+         << "-Dnet.java.games.input.librarypath=" + nativesFile
+         << "-Djna.nosys=true" << "-Djna.nounpack=true";
+    args << QStringLiteral("-Datw.input.macContinuity=%1").arg(config.macInputContinuity ? "true" : "false");
+#endif
+
     if (config.useWeave) {
         for (int index = args.size() - 1; index >= 0; --index) {
             if (args[index].startsWith(QStringLiteral("-Dweave.")))
                 args.removeAt(index);
         }
-        const QString privateHome = FS::combinePaths(qApp->applicationDirPath(), QStringLiteral("data/home"));
-        const QString privateTemp = FS::combinePaths(qApp->applicationDirPath(), QStringLiteral("data/tmp"));
+        const QString privateHome = FS::combinePaths(FS::getPackageRoot(), QStringLiteral("data/home"));
+        const QString privateTemp = FS::combinePaths(FS::getPackageRoot(), QStringLiteral("data/tmp"));
         if (!QDir().mkpath(privateHome) || !QDir().mkpath(privateTemp)) {
             emit error("Extract ATW into a writable folder; cannot create private Java storage.");
             process->deleteLater();
@@ -625,8 +692,8 @@ bool OfflineLauncher::launch() {
     QString accessToken, username, uuid, userProperties;
 #ifdef ATW_PACKAGE_MODE
     // Set these after custom flags so a copied setting cannot redirect storage.
-    const QString portableHome = FS::combinePaths(qApp->applicationDirPath(), "data/home");
-    const QString portableTemp = FS::combinePaths(qApp->applicationDirPath(), "data/tmp");
+    const QString portableHome = FS::combinePaths(FS::getPackageRoot(), "data/home");
+    const QString portableTemp = FS::combinePaths(FS::getPackageRoot(), "data/tmp");
     for (const QString& directory : {portableHome, portableTemp,
             portableHome + "/AppData/Roaming", portableHome + "/AppData/Local"}) {
         if (!QDir().mkpath(directory)) {
@@ -678,6 +745,11 @@ bool OfflineLauncher::launch() {
     process->setArguments(args);
 
     QProcessEnvironment env = cleanJavaEnvironment();
+#if defined(Q_OS_MACOS) && !defined(ATW_PACKAGE_MODE)
+    // Mac private-home isolation also applies to legacy development targets.
+    env.insert("HOME", FS::combinePaths(FS::getPackageRoot(), QStringLiteral("data/home")));
+    env.insert("TMPDIR", FS::combinePaths(FS::getPackageRoot(), QStringLiteral("data/tmp")) + QLatin1Char('/'));
+#endif
 #ifdef ATW_PACKAGE_MODE
     env.insert("USERPROFILE", QDir::toNativeSeparators(portableHome));
     env.insert("HOME", QDir::toNativeSeparators(portableHome));
@@ -685,6 +757,9 @@ bool OfflineLauncher::launch() {
     env.insert("LOCALAPPDATA", QDir::toNativeSeparators(portableHome + "/AppData/Local"));
     env.insert("TEMP", QDir::toNativeSeparators(portableTemp));
     env.insert("TMP", QDir::toNativeSeparators(portableTemp));
+#ifdef Q_OS_MACOS
+    env.insert("TMPDIR", portableTemp + QLatin1Char('/'));
+#endif
 #endif
 
     process->setProcessEnvironment(env);
@@ -724,6 +799,11 @@ bool OfflineLauncher::launch() {
 }
 
 QString OfflineLauncher::findJavaExecutable(const QString& gameVersion) {
+#ifdef Q_OS_MACOS
+    Q_UNUSED(gameVersion);
+    // No global Java discovery or guessed Lunar zulu8 fallback on Mac.
+    return resolveJavaExecutable(FS::combinePaths(FS::getPackageRoot(), QStringLiteral("runtime/java")));
+#else
     QDir jreDir = QDir(FS::combinePaths(FS::getLunarDirectory(), "jre"));
 
     QFileInfoList jreSubDirs = jreDir.entryInfoList(QDir::Dirs, QDir::Time | QDir::Reversed);
@@ -770,12 +850,17 @@ QString OfflineLauncher::findJavaExecutable(const QString& gameVersion) {
     }
 
     return fallbackExecutable;
+#endif
 }
 
 QString OfflineLauncher::resolveJavaExecutable(const QString& path) {
     QString trimmedPath = QDir::fromNativeSeparators(path.trimmed());
     if (trimmedPath.isEmpty())
         return {};
+#ifdef Q_OS_MACOS
+    if (QDir::isRelativePath(trimmedPath))
+        trimmedPath = FS::combinePaths(FS::getPackageRoot(), trimmedPath);
+#endif
 
     QFileInfo info(trimmedPath);
     if (info.isFile()) {
@@ -796,6 +881,10 @@ QString OfflineLauncher::resolveJavaExecutable(const QString& path) {
     candidateDirs << info.absoluteFilePath();
     if (info.fileName().compare(QStringLiteral("bin"), Qt::CaseInsensitive) != 0)
         candidateDirs << FS::combinePaths(info.absoluteFilePath(), QStringLiteral("bin"));
+#ifdef Q_OS_MACOS
+    candidateDirs << FS::combinePaths(info.absoluteFilePath(), QStringLiteral("Contents/Home/bin"));
+    candidateDirs << FS::combinePaths(info.absoluteFilePath(), QStringLiteral("Home/bin"));
+#endif
 
     for (const QString& candidateDir : candidateDirs) {
 #ifdef Q_OS_WIN
@@ -922,7 +1011,7 @@ void OfflineLauncher::scheduleMinecraftWindowIcon(qint64 pid) {
     if (pid <= 0)
         return;
 
-    QString iconPath = FS::combinePaths(qApp->applicationDirPath(), QStringLiteral("minecraft.ico"));
+    QString iconPath = FS::combinePaths(FS::getPackageRoot(), QStringLiteral("minecraft.ico"));
     std::wstring nativeIconPath = QFileInfo::exists(iconPath)
         ? QDir::toNativeSeparators(iconPath).toStdWString()
         : std::wstring();

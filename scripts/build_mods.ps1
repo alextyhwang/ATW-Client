@@ -4,7 +4,8 @@ param(
     [ValidateSet('atw-levelhead','atw-rebrand','raw-input','no-hit-delay','optimal-zone','atw-render-boost','atw-event-dispatch')]
     [string[]]$Modules = @('atw-levelhead','atw-rebrand','raw-input','no-hit-delay','optimal-zone','atw-render-boost'),
     [string]$JavaHome = (Join-Path $PSScriptRoot '../runtime/java'),
-    [string]$GradleUserHome = (Join-Path $PSScriptRoot '../build/dependencies/gradle-home'),
+    [string]$GradleUserHome,
+    [string]$PackageBuildDir,
     [string[]]$Tasks = @('build'),
     [switch]$Offline,
     [switch]$ValidateOnly,
@@ -14,13 +15,28 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $JavaHome = (Resolve-Path -LiteralPath $JavaHome).Path
+if (!$GradleUserHome) {
+    $GradleUserHome = Join-Path $repositoryRoot $(if ($IsWindows) { 'build/dependencies/gradle-home' } else { 'build-macos/dependencies/gradle-home' })
+}
+if (!$PackageBuildDir) {
+    $PackageBuildDir = Join-Path $repositoryRoot $(if ($IsWindows) { 'build' } else { 'build-macos' })
+}
+$PackageBuildDir = [IO.Path]::GetFullPath($PackageBuildDir)
+$packageRelative = [IO.Path]::GetRelativePath($repositoryRoot, $PackageBuildDir)
+if ($packageRelative -eq '..' -or $packageRelative.StartsWith('../') -or
+    $packageRelative.StartsWith('..\') -or [IO.Path]::IsPathRooted($packageRelative)) {
+    throw 'PackageBuildDir must remain inside this checkout.'
+}
 $GradleUserHome = [IO.Path]::GetFullPath($GradleUserHome)
-foreach ($tool in @('java.exe','javac.exe')) {
+$javaTool = if ($IsWindows) { 'java.exe' } else { 'java' }
+$javacTool = if ($IsWindows) { 'javac.exe' } else { 'javac' }
+$gradleWrapper = if ($IsWindows) { 'gradlew.bat' } else { 'gradlew' }
+foreach ($tool in @($javaTool, $javacTool)) {
     if (!(Test-Path -LiteralPath (Join-Path $JavaHome "bin/$tool") -PathType Leaf)) {
         throw 'Provide -JavaHome pointing to a Java 17 JDK.'
     }
 }
-$version = & (Join-Path $JavaHome 'bin/javac.exe') -version 2>&1
+$version = & (Join-Path $JavaHome "bin/$javacTool") -version 2>&1
 if ($LASTEXITCODE -or "$version" -notmatch '^javac 17\.') { throw 'Mod builds require a Java 17 JDK.' }
 $outputs = @{
     'atw-levelhead' = 'ATWLevelHead-0.1.0-atw-weave1.4.1.jar'
@@ -34,7 +50,7 @@ $outputs = @{
 }
 foreach ($module in $Modules) {
     $moduleRoot = Join-Path $repositoryRoot "weave-mods/$module"
-    foreach ($input in @('gradlew.bat','gradle/wrapper/gradle-wrapper.jar',
+    foreach ($input in @($gradleWrapper,'gradle/wrapper/gradle-wrapper.jar',
         'gradle/wrapper/gradle-wrapper.properties','settings.gradle.kts','build.gradle.kts','src/main')) {
         if (!(Test-Path -LiteralPath (Join-Path $moduleRoot $input))) { throw "Missing $module/$input" }
     }
@@ -66,7 +82,12 @@ try {
             '-Dorg.gradle.java.installations.auto-download=false',
             '-Dorg.gradle.java.installations.fromEnv=JAVA_HOME')
         if ($Offline) { $arguments += '--offline' }
-        & (Join-Path $moduleRoot 'gradlew.bat') @arguments
+        if ($IsWindows) {
+            & (Join-Path $moduleRoot $gradleWrapper) @arguments
+        } else {
+            # Calling sh also handles a physical copy without executable mode bits.
+            & /bin/sh (Join-Path $moduleRoot $gradleWrapper) @arguments
+        }
         if ($LASTEXITCODE) { throw "Canonical build failed: $module" }
     }
 } finally {
@@ -99,8 +120,9 @@ foreach ($module in $Modules) {
             }
         }
     } finally { $zip.Dispose() }
-    foreach ($dir in @('weave-mods/runtime','build/data/home/.weave/mods')) {
-        $target = Join-Path $repositoryRoot "$dir/$($outputs[$module])"
+    foreach ($dir in @((Join-Path $repositoryRoot 'weave-mods/runtime'),
+                       (Join-Path $PackageBuildDir 'data/home/.weave/mods'))) {
+        $target = Join-Path $dir $outputs[$module]
         if ((Test-Path -LiteralPath ($target + '.disabled')) -and (Test-Path -LiteralPath $target)) {
             throw "Both enabled and disabled copies exist: $module"
         }

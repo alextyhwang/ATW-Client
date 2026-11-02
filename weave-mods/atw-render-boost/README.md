@@ -11,6 +11,22 @@ the captured Lunar font path is incompatible with this per-glyph cache.
 
 ## Exact behavior
 
+### Mac source integration status
+
+The Mac copy retains Lunar/Weave 1.4.1, Minecraft 1.8.9, Java 17 and the complete
+OpenGL drawing path. Name parsing remains requested ON; all other experimental
+requests retain their OFF defaults. Exact bytecode profiles and runtime guards
+are unchanged. Mac admission, visuals and performance are not qualified.
+
+Source-only changes avoid temporary field-token substrings on name-parse
+admission and the reverse-encoding tuple hash's varargs array. Name-parse storage
+weights use wide arithmetic before narrowing, and eviction avoids addition
+overflow. Original getters, decoded fields, exact equality, fresh results and
+cache limits remain. No JNI or Metal rendering implementation is included.
+See the [whole-frame ownership map and blockers](../../docs/MAC_RENDER_INTEGRATION.md).
+No build, test, installation, launch or runtime jar refresh was performed for
+these changes.
+
 ### Strict flat show-entity SNBT parse cache (independent, enabled by default)
 
 `/atwboost names on|off|status|clear` controls the bounded parse cache for the

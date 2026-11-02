@@ -14,7 +14,14 @@ public final class NameEncodingCache {
             this.present=present;this.name=present?Objects.requireNonNull(name):null;
         }
         long characters(){return (long)id.length()+type.length()+(present?name.length():0);}
-        @Override public int hashCode(){return Objects.hash(id,type,present,name);}
+        @Override public int hashCode(){
+            // Same Objects.hash tuple order/seed, without its per-call varargs array.
+            int hash=1;
+            hash=31*hash+id.hashCode();
+            hash=31*hash+type.hashCode();
+            hash=31*hash+Boolean.hashCode(present);
+            return 31*hash+Objects.hashCode(name);
+        }
         @Override public boolean equals(Object o){if(!(o instanceof Key))return false;Key k=(Key)o;
             return present==k.present&&id.equals(k.id)&&type.equals(k.type)&&Objects.equals(name,k.name);}
     }

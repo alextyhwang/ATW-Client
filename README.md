@@ -13,6 +13,12 @@ The canonical package uses Java 17 and Weave 1.4.1.
 - [Current performance status](ATW_RENDER_BOOST.md): measured changes and experimental defaults.
 - [Documentation map](docs/README.md): task-specific references and historical evidence.
 
+The `mac/m2-pro-weave-1.8.9` branch carries the Apple-Silicon port foundation:
+package-local paths, native/runtime admission, Mac input continuity (opt-in),
+and transfer/build tooling. It is source-ready for a real Mac qualification
+pass, not a tested macOS binary; the complete OpenGL path remains the renderer.
+See [Mac status](docs/MAC_TEST_READY.md).
+
 The 2026-11-02 tests passed sign-in, account retention, relaunch and Bedwars
 Practice joins in normal and fresh-settings profiles. Hypixel still disconnects
 on BLACKBOX; it joined on Alayna's PC on the same network. See

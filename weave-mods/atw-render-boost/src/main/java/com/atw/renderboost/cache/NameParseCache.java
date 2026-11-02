@@ -13,9 +13,9 @@ public final class NameParseCache {
     private static final class Entry {
         final int bits, characters;
         final String name,id,type;
-        Entry(int bits,String key,String name,String id,String type) {
+        Entry(int bits,int characters,String name,String id,String type) {
             this.bits=bits; this.name=name; this.id=id; this.type=type;
-            characters=key.length()+name.length()+id.length()+type.length();
+            this.characters=characters;
         }
     }
     private final int maximumEntries, maximumKey, maximumCharacters;
@@ -37,10 +37,13 @@ public final class NameParseCache {
         if(key==null || key.length()>maximumKey || entries.containsKey(key)) return;
         int bits=shape(key);
         if(bits==0){unsupported++;return;}
-        Entry e=new Entry(bits,key,access.read(original,"name"),access.read(original,"id"),
-                (bits&4)==0 ? "" : access.read(original,"type"));
-        if(e.characters>maximumCharacters){oversized++;return;}
-        while(entries.size()>=maximumEntries || characters+e.characters>maximumCharacters) {
+        String name=access.read(original,"name"), id=access.read(original,"id"),
+                type=(bits&4)==0 ? "" : access.read(original,"type");
+        // Account in wide arithmetic before allocating an entry or narrowing its weight.
+        long cost=(long)key.length()+name.length()+id.length()+type.length();
+        if(cost>maximumCharacters){oversized++;return;}
+        Entry e=new Entry(bits,(int)cost,name,id,type);
+        while(entries.size()>=maximumEntries || characters>maximumCharacters-e.characters) {
             Iterator<Map.Entry<String,Entry>> i=entries.entrySet().iterator();
             Map.Entry<String,Entry> old=i.next(); characters-=old.getValue().characters; i.remove(); evictions++;
         }
@@ -62,8 +65,11 @@ public final class NameParseCache {
             i=ws(s,i); if(i>=s.length())return 0;
             int start=i;
             while(i<s.length() && s.charAt(i)>='a' && s.charAt(i)<='z')i++;
-            String key=s.substring(start,i);
-            int bit=key.equals("name")?1:key.equals("id")?2:key.equals("type")?4:0;
+            // Compare the complete token in place; misses need no temporary key Strings.
+            int length=i-start;
+            int bit=length==4 && s.regionMatches(start,"name",0,4)?1
+                    :length==2 && s.regionMatches(start,"id",0,2)?2
+                    :length==4 && s.regionMatches(start,"type",0,4)?4:0;
             if(bit==0 || (bits&bit)!=0)return 0;
             bits|=bit; i=ws(s,i);
             if(i>=s.length() || s.charAt(i++)!=':')return 0;

@@ -2,6 +2,7 @@ package com.github.koxx12dev;
 
 import com.github.koxx12dev.command.OpenFileCommand;
 import com.github.koxx12dev.command.RescanCommand;
+import com.github.koxx12dev.input.MacInputProvider;
 import com.github.koxx12dev.listener.UnintendedUsageWarningListener;
 import com.github.koxx12dev.util.ChatUtil;
 import com.github.koxx12dev.util.MouseDeltaAccumulator;
@@ -119,6 +120,14 @@ public class RawInput implements ModInitializer {
     @Override
     public void init() {
         if (!System.getProperty("os.name").toLowerCase().contains("windows")) {
+            // Mac continuity delegates to the existing game-owned helper. It
+            // never starts the Windows JInput worker or selects a raw device.
+            if (MacInputProvider.isRequested()) {
+                MacInputProvider provider = new MacInputProvider();
+                EventBus.subscribe(StartGameEvent.Post.class, provider::onStart);
+                EventBus.subscribe(TickEvent.Pre.class, provider::onTick);
+                return;
+            }
             EventBus.subscribe(new UnintendedUsageWarningListener());
             CommandBus.register(new OpenFileCommand());
             return;

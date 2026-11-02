@@ -7,6 +7,7 @@
 #include <QStringList>
 #include <QDir>
 #include <QVersionNumber>
+#include <QRegularExpression>
 
 #include "fs.h"
 
@@ -167,13 +168,54 @@ QStringList Utils::getExternalFiles(const QStringList& files, const QString& ver
 }
 
 QString Utils::getNativesFile(const QStringList& files, const QString& version) {
-    for (const QString& filename : files) {
-        if (filename.endsWith(Utils::getVersionFile(version) + ".zip")) {
-            return filename.left(filename.length() - 4);
-        }
-    }
+    return getNativesFile(files, version, NativeInspection::currentPlatform(), nullptr);
+}
 
-    return "";
+QString Utils::getNativesFile(const QStringList& files, const QString& version,
+                             const NativeInspection::Platform& platform, QString* error) {
+    QStringList matches;
+    // Legacy Windows "x86" archives contain both 32- and 64-bit DLLs. Keep
+    // that package convention for x64; it is never an ARM/Mac candidate.
+    QStringList osNames;
+    QStringList cpuNames;
+    if (platform.os == QStringLiteral("windows")) {
+        osNames = QStringList{QStringLiteral("win"), QStringLiteral("windows")};
+        if (platform.cpu == QStringLiteral("x86_64"))
+            cpuNames = QStringList{QStringLiteral("x86"), QStringLiteral("x86_64"), QStringLiteral("amd64"), QStringLiteral("x64")};
+        else if (platform.cpu == QStringLiteral("i386"))
+            cpuNames = QStringList{QStringLiteral("x86")};
+    } else if (platform.os == QStringLiteral("macos")) {
+        osNames = QStringList{QStringLiteral("macos"), QStringLiteral("osx"), QStringLiteral("mac")};
+        if (platform.cpu == QStringLiteral("arm64"))
+            cpuNames = QStringList{QStringLiteral("arm64"), QStringLiteral("aarch64"), QStringLiteral("universal"), QStringLiteral("universal2")};
+        else if (platform.cpu == QStringLiteral("x86_64"))
+            cpuNames = QStringList{QStringLiteral("x86_64"), QStringLiteral("amd64"), QStringLiteral("x64"), QStringLiteral("universal"), QStringLiteral("universal2")};
+    } else if (platform.os == QStringLiteral("linux")) {
+        osNames = QStringList{QStringLiteral("linux")};
+        if (platform.cpu == QStringLiteral("x86_64"))
+            cpuNames = QStringList{QStringLiteral("x86_64"), QStringLiteral("amd64"), QStringLiteral("x64"), QStringLiteral("x86")};
+        else if (platform.cpu == QStringLiteral("arm64"))
+            cpuNames = QStringList{QStringLiteral("arm64"), QStringLiteral("aarch64")};
+    }
+    if (osNames.isEmpty() || cpuNames.isEmpty()) {
+        if (error) *error = QStringLiteral("Unsupported native platform: %1/%2.").arg(platform.os, platform.cpu);
+        return {};
+    }
+    const QRegularExpression pattern(QStringLiteral("^client-natives-(%1)-(%2)-%3\\.zip$")
+        .arg(osNames.join('|'), cpuNames.join('|'), QRegularExpression::escape(getVersionFile(version))),
+        QRegularExpression::CaseInsensitiveOption);
+    for (const QString& filename : files) {
+        if (pattern.match(filename).hasMatch()) matches << filename;
+    }
+    if (matches.size() != 1) {
+        if (error) *error = matches.isEmpty()
+            ? QStringLiteral("No explicit %1/%2 Lunar native archive for %3. Supply an audited archive matching this OS/CPU; foreign-platform natives cannot be used.")
+                .arg(platform.os, platform.cpu, version)
+            : QStringLiteral("Multiple %1/%2 Lunar native archives for %3. Keep one audited archive to avoid ambiguous selection.")
+                .arg(platform.os, platform.cpu, version);
+        return {};
+    }
+    return matches.first().left(matches.first().size() - 4);
 }
 
 

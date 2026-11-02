@@ -70,6 +70,7 @@ public:
 
     bool useWeave;
     bool weaveOffline;
+    bool macInputContinuity;
 
     QList<Agent> agents;
     QStringList helpers;
