@@ -74,6 +74,9 @@ public:
     QList<Agent> agents;
     QStringList helpers;
     QList<Mod> mods;
+
+    // Microsoft OAuth client ID; empty uses the built-in Minecraft title ID.
+    QString msaClientId;
 public:
     void save();
     static Config load();

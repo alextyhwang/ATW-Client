@@ -20,6 +20,6 @@ extends Command {
 
     public void execute(String[] args) {
         ChatUtil.addMessage(EnumChatFormatting.GOLD, "[RawInput] Rescanning input devices...");
-        RawInput.mouse = null;
+        RawInput.rescan();
     }
 }

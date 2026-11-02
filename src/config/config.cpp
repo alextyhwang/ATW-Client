@@ -120,6 +120,7 @@ void Config::save() {
     saveObj["windowWidth"] = windowWidth;
     saveObj["windowHeight"] = windowHeight;
     saveObj["maxFps"] = maxFps;
+    saveObj["msaClientId"] = msaClientId;
 
     QJsonArray arr;
     for(const Agent& agent : agents){
@@ -228,7 +229,8 @@ Config Config::load() {
         jsonObj["weaveOffline"].toBool(true),
         agents,
         helpers,
-        mods
+        mods,
+        jsonObj["msaClientId"].toString().trimmed()
     };
 }
 

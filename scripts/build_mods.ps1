@@ -1,7 +1,7 @@
 #Requires -Version 7.0
 # Builds canonical sources without requiring upgrade-work staging artifacts.
 param(
-    [ValidateSet('atw-levelhead','atw-rebrand','raw-input','no-hit-delay','optimal-zone','atw-render-boost')]
+    [ValidateSet('atw-levelhead','atw-rebrand','raw-input','no-hit-delay','optimal-zone','atw-render-boost','atw-event-dispatch')]
     [string[]]$Modules = @('atw-levelhead','atw-rebrand','raw-input','no-hit-delay','optimal-zone','atw-render-boost'),
     [string]$JavaHome = (Join-Path $PSScriptRoot '../runtime/java'),
     [string]$GradleUserHome = (Join-Path $PSScriptRoot '../build/dependencies/gradle-home'),
@@ -29,6 +29,8 @@ $outputs = @{
     'no-hit-delay' = 'WeaveNoHitDelay-2.0-atw-weave1.4.1.jar'
     'optimal-zone' = 'ATWOverlay-0.1.0.jar'
     'atw-render-boost' = 'ATWRenderBoost-0.1.0.jar'
+    # Optional experiment: select explicitly; retain the six-module default.
+    'atw-event-dispatch' = 'ATWDispatchExperiment-0.1.0.jar'
 }
 foreach ($module in $Modules) {
     $moduleRoot = Join-Path $repositoryRoot "weave-mods/$module"

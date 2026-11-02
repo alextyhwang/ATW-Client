@@ -2,8 +2,11 @@ package com.atw.optimalzone.command;
 
 import com.atw.optimalzone.OptimalZoneMod;
 import net.minecraft.util.EnumChatFormatting;
+import net.minecraft.util.BlockPos;
 import net.weavemc.api.command.Command;
 import org.jetbrains.annotations.NotNull;
+import java.util.Arrays;
+import java.util.Locale;
 
 public class OverlayCommand extends Command {
     private final OptimalZoneMod mod;
@@ -23,8 +26,14 @@ public class OverlayCommand extends Command {
             return;
         }
 
-        String action = args[1].toLowerCase();
-        if ("toggle".equals(action) || "master".equals(action)) {
+        String action = args[1].toLowerCase(Locale.ROOT);
+        if ("trajectoryprep".equals(action)) {
+            if (args.length != 3 || !Arrays.asList("on", "off", "status", "clear").contains(args[2].toLowerCase(Locale.ROOT))) {
+                mod.sendChat(EnumChatFormatting.YELLOW + "Usage: /atwoverlay trajectoryprep on|off|status|clear (source experiment; startup OFF)");
+            } else {
+                mod.trajectoryPreparationCommand(args[2].toLowerCase(Locale.ROOT));
+            }
+        } else if ("toggle".equals(action) || "master".equals(action)) {
             mod.toggle();
         } else if ("optimal".equals(action) || "optimalzone".equals(action) || "zone".equals(action)) {
             mod.toggleOptimalZone();
@@ -49,8 +58,24 @@ public class OverlayCommand extends Command {
         } else if ("status".equals(action)) {
             mod.sendStatus();
         } else {
-            mod.sendChat(EnumChatFormatting.YELLOW + "Usage: /atwoverlay [toggle|optimalzone|projectiles|chams|minimap|bigmap|terrain|perf|perfreset|invis|debugtarget|status]");
+            mod.sendChat(EnumChatFormatting.YELLOW + "Usage: /atwoverlay [toggle|optimalzone|projectiles|trajectoryprep on|off|status|clear|chams|minimap|bigmap|terrain|perf|perfreset|invis|debugtarget|status]");
         }
+    }
+
+    @Override
+    public String[] getSuggestions(String[] args, BlockPos target) {
+        String[] choices;
+        // Unlike execute(), Weave's completion callback removes the command name.
+        if (args.length == 1) {
+            choices = new String[]{"toggle", "optimalzone", "projectiles", "trajectoryprep", "chams", "minimap",
+                    "bigmap", "terrain", "perf", "perfreset", "invis", "debugtarget", "status"};
+        } else if (args.length == 2 && "trajectoryprep".equalsIgnoreCase(args[0])) {
+            choices = new String[]{"on", "off", "status", "clear"};
+        } else {
+            return new String[0];
+        }
+        String prefix = args[args.length - 1].toLowerCase(Locale.ROOT);
+        return Arrays.stream(choices).filter(choice -> choice.startsWith(prefix)).toArray(String[]::new);
     }
 
     private void run(Action action) {

@@ -85,6 +85,92 @@ tests execute the production runtime singleton/lifecycle/evidence/failure/benchm
 paths plus strict grammar/equality/bounds. These are offline proofs, not live FPS
 or complete game visual proofs.
 
+### Immutable reverse show-entity encoding cache (independent, default OFF)
+
+`/atwboost encoding on|off|status|clear` controls this session-only experiment.
+It caches only the original successful `Codec.encode` String at the exact
+`serializeShowEntity` callsite. The original fresh compound/map/tags, id/type
+getters, UUID conversion, both name reads, plain serializer, NBT writes and final
+fresh `Component.text` construction still run. Misses and unsupported invocations
+execute the unchanged original encode instruction. Entries commit only immediately
+before normal return, after final component construction succeeds. No returned
+component, native object, callback, entity, key or UUID enters storage.
+Accepted hits create a fresh String wrapper before rechecking the epoch and
+counting a skipped encode. The cached String remains internal; fresh components
+expose fresh content String references on misses and consecutive hits. Wrapper
+allocation failure or an invalid epoch retains original encoding. This does not
+promise equal allocation, GC or resource-exhaustion behavior.
+
+The immutable key is `(idString, typeString, namePresent, nameString)` from the
+already-evaluated original setter operands. Absence and empty name differ. Exact
+String equality handles delimiter/hash collisions; original escaping/order is
+retained without a replacement formatter. The LRU caps at 256 entries, 4096 input
+UTF-16 characters, 8192 output characters and 524288 combined retained characters.
+Toggle/clear, world/render-thread change, reload and proof changes invalidate it.
+Helper failure or singleton/loader guard rejection latches fallback until restart.
+Encoding helper catches propagate the same `ThreadDeath` and every
+`VirtualMachineError` except deliberately recoverable `OutOfMemoryError`.
+Recoverable recording failure preserves the original return; fatal commit errors
+propagate after construction. The existing parse-cache policy remains unchanged.
+
+`NameEncodingHook` follows unchanged `NameParseHook`. Two separately generated
+exact post-name converter profiles admit captured/conflict and observed startup
+member ordering; detached provenance checks and all complete executable hashes
+remain mandatory. The other nine dependencies reuse the original name gate on
+copies with only its exact marker removed. Per-definition unique encoding marker
+names bind the actual loaded definitions to the immutable admission snapshot;
+metadata checks do not initialize parser classes. The codec must be the actual
+private static-final converter singleton. All ten definitions share its loader.
+Guava resolves through that loader but independently proves its own defining
+loader/unique marker. Repeated transformations/redefinitions reject admission.
+
+**Exact startup factory profile approved offline and subsequently bound live:**
+`name-encoding-factory-live.properties` has `captureKind=actual-loaded-exact-startup`
+and `parentApproved=true`. It joins PID 8044's actual-loaded header, ordered fields
+and all 97 method fingerprints with ONLY PID 20072's exact startup method order,
+reproduced by pinned packaged Guava and corroborated by the complete hook report.
+The two full ordered shapes and their digests remain pinned; only startup shape
+`7108c017...` is admitted. The historical loaded order is provenance only.
+Its four-instruction factory returns a fresh HashMap and never reflects method
+declaration order. No generic sorting or arbitrary permutation is accepted.
+Private regressions approve this exact startup layout and reject changed bodies,
+fields, access, arbitrary reorders and metadata flag promotion. Unique loaded
+markers, actual caller resolution and encoding hits subsequently passed live qualification
+(see [the pilot](../../docs/NAME_ENCODING_PILOT.md)).
+The admitted factory must still be exactly `new HashMap()` with no callbacks.
+An exact disk match or hook-input diagnostic cannot authorize it. If Weave never
+observes this parent-loaded class, this implementation stays unavailable; a
+separately reviewed loaded-definition mechanism is needed. Never flip the two
+metadata flags to bypass that gap.
+
+Optional `-Datwboost.nameEncodingEvidenceOutput=<absolute private directory>`
+writes CREATE_NEW hash-only converter/Maps hook-input reports exactly under the
+pre-existing Performance `upgrade-work/environment-20261005/name-encoding/hookstage`.
+It publishes no class bytes, constants or private text; its reports explicitly
+say `captureKind=hook-input-only`, `parentApproved=false` and never grant admission.
+
+Benchmark metadata records request/admission/factory/active state, retained bounds
+and measured-window hit/miss/admission/oversize/eviction/collision/failure/guard/
+invalidation/fallback deltas. `encodingEncodeCallsSkipped` counts accepted hits,
+not saved time or bytes. Encoding-ON sampling requires active exact admission;
+mode/lifecycle/proof/failure changes abort, and zero measured-window hits prevents
+export. Names remain independently requested ON by default; glyph/error/terrain
+experiments remain OFF. No new gain or live visual acceptance is claimed.
+
+Public executable differential and isolated production-runtime tests cover callback
+order, warnings, exceptions, collisions, bounds, lifecycles and guards. Injected
+executable tests also call the production runtime directly, checking public
+`content()` reference freshness, unchanged termination/fatal error identity,
+wrapper allocation fallback and post-allocation epoch invalidation. Private
+codec/startup modes also execute the actual reverse method with controlled
+callbacks, captured NBT stringifiers, exact post-name composition and relocated
+ASM admission. `-PencodingEvidenceOutput=<absolute module resource path>` is an
+explicit offline test-generator option for the two composed converter profiles.
+`-PencodingFactoryEvidenceOutput=<absolute module factory resource path>` explicitly
+generates the parent-approved exact startup join after all pinned private checks;
+it does not qualify actual loaded identity on the next restart. See
+[implementation and parent handoff](../../docs/NAME_ENCODING_IMPLEMENTATION.md).
+
 ### Bounded living-name diagnostic (default OFF)
 
 An opt-in startup mismatch diagnostic for the parse gate is available with
@@ -563,3 +649,41 @@ Local capture provenance, reproduction results, and the profile-based follow-up
 proposal are in `upgrade-work/renderboost-live/REPORT.md` at the repository root.
 The capture used a null-returning diagnostic transformer; no replacement bytecode,
 game settings, restart, GUI interaction, account data, or credentials were used.
+
+## Forward entity-hover experiment
+
+Forward stringification caching is independently **OFF by default**. Use
+`/atwboost forward on|off|status|clear` for session control. Hits retain immutable
+serialized characters internally and expose fresh Strings/text/hover objects;
+original getters, setters, allocations and constructor callbacks remain.
+Exact producer/NBT/factory profiles and actual loaded-class markers are required.
+Forward-ON benchmark export requires stable admission and completed measured-window
+hits. No forward performance improvement has been established.
+
+See [implementation and validation](../../docs/FORWARD_HOVER_IMPLEMENTATION.md)
+for exact composition, the field-read guard, build hash and integration history.
+The installed build passed live 5/5 admission and completed-hit checks. Its
+[local screen](../../docs/FORWARD_HOVER_LOCAL_SCREEN.md) measured +0.237%, below
+control drift and the 3% threshold, so it remains OFF. Reverse encoding likewise
+remains OFF after its +0.616% [local screen](../../docs/NAME_ENCODING_LOCAL_SCREEN.md).
+Broader cache qualification was stopped conservatively, not declared passed.
+
+Existing OptiFine Render Regions was separately accepted ON for the tested local
+installation. Two fully warmed terrain blocks with Default textures improved
+625.79 to 1016.66 FPS; a variable-crowd lobby block observed about +25%. This is
+an existing renderer setting, not a gain from either new cache or ATW terrain.
+See [qualification, restoration and limitations](../../docs/RENDER_REGIONS_QUALIFICATION.md)
+and [all execution outcomes](../../docs/RENDER_EXECUTION_TASKS.md).
+
+## Name formatting preparation candidate
+
+`/atwboost nameprep on|off|status|clear` controls a separate default-OFF,
+session-only experiment. It reuses only equal current prefix/username/suffix
+immutable text at the pinned `ScorePlayerTeam.formatString` final `toString`
+seam. Every original getter and append still executes. Teams, components,
+styles and hovers are never cached. Storage is bounded to 512 entries and
+262,144 retained UTF-16 characters; oversized inputs use the original path.
+Unknown compositions, subclasses, off-thread and reentrant calls fall back.
+The guarded name parse default and all existing feature defaults are unchanged.
+No FPS, network or hit benefit has been qualified. Review and offline build
+instructions: [nameprep candidate](../../docs/PVP_NAMEPREP_EXPERIMENT.md).

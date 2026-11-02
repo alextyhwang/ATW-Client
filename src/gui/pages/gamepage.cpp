@@ -12,6 +12,7 @@
 #include <QCheckBox>
 #include <QComboBox>
 
+#include "gui/widgets/accountwidget.h"
 #include "gui/widgets/filechooser.h"
 #include "gui/widgets/widgetutils.h"
 #include <QDesktopServices>
@@ -119,6 +120,7 @@ GamePage::GamePage(Config& config, QWidget *parent) : ConfigurationPage(config, 
     toggleLayout->addStretch();
     toggleLayout->addWidget(closeOnLaunch);
 
+    mainLayout->addWidget(new AccountWidget(config));
     mainLayout->addLayout(memorySliderContainer);
     mainLayout->addLayout(minecraftContainer);
     mainLayout->addLayout(jreContainer);
@@ -180,5 +182,5 @@ void GamePage::load() {
 }
 
 QString GamePage::description() {
-    return QStringLiteral("Memory, Java, and game directory settings.");
+    return QStringLiteral("Account, memory, Java, and game directory settings.");
 }

@@ -150,6 +150,28 @@ static void appendLauncherLog(const QString& line) {
     }
 }
 
+// Minecraft 1.8.9 prints the full session token at startup ("Session ID is token:...").
+// Black it out of both game logs before launch, so Minecraft's own log archive of
+// the previous session is clean, and again after the game exits.
+static void redactSessionTokens() {
+    static const QRegularExpression sessionLine(QStringLiteral("Session ID is token:[^)\\s]+"));
+    const QStringList logs{
+        FS::combinePaths(FS::getLunarLogsPath(), QStringLiteral("renderer.log")),
+        FS::combinePaths(FS::getLunarDirectory(), QStringLiteral("offline/multiver/logs/latest.log"))};
+    for (const QString& path : logs) {
+        QFile file(path);
+        if (!file.open(QIODevice::ReadOnly))
+            continue;
+        QString text = QString::fromUtf8(file.readAll());
+        file.close();
+        if (!text.contains(sessionLine))
+            continue;
+        text.replace(sessionLine, QStringLiteral("Session ID is token:<removed by ATW>"));
+        if (file.open(QIODevice::WriteOnly | QIODevice::Truncate))
+            file.write(text.toUtf8());
+    }
+}
+
 static QString weaveRuntimeDirectory() {
     return FS::combinePaths(QCoreApplication::applicationDirPath(), QStringLiteral("runtime/weave"));
 }
@@ -429,6 +451,7 @@ void OfflineLauncher::onProcessFinished(int, QProcess::ExitStatus) {
     if (logFile.open(QIODevice::Append | QIODevice::Text)) {
         logFile.write(QStringLiteral("[Launcher] Java process exited with code %1\n").arg(process ? process->exitCode() : 0).toUtf8());
     }
+    redactSessionTokens();
 
     launchedPid = 0;
     if (process) {
@@ -485,6 +508,7 @@ bool OfflineLauncher::launch() {
 
     QString logsDir = FS::getLunarLogsPath();
     QDir().mkpath(logsDir);
+    redactSessionTokens();
 
     const JavaProbeResult javaProbe = probeJava(executable);
     if (config.useWeave && (!javaProbe.ok || javaProbe.majorVersion < 17)) {
@@ -614,7 +638,8 @@ bool OfflineLauncher::launch() {
     }
     args << "-Duser.home=" + portableHome << "-Djava.io.tmpdir=" + portableTemp;
 #endif
-    loadActiveAccount(accessToken, username, uuid, userProperties);
+    if (!offlineMode)
+        loadActiveAccount(accessToken, username, uuid, userProperties);
 
     if (accessToken.isEmpty()) {
         accessToken = "0";

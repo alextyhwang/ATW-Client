@@ -35,18 +35,28 @@ public class ProjectileTrajectoryRenderer {
     private static final RangeColor FAR_COLOR = new RangeColor(1.0F, 0.18F, 0.10F);
 
     private final OptimalZoneMod mod;
+    private final TrajectoryPreparation preparation = new TrajectoryPreparation();
+    private boolean computing;
+    private boolean preparationInterrupted;
 
     public ProjectileTrajectoryRenderer(OptimalZoneMod mod) {
         this.mod = mod;
     }
 
     public void render(RenderWorldEvent event) {
+        preparation.renderCalls = TrajectoryPreparation.increment(preparation.renderCalls);
+        if (preparation.requested) {
+            preparation.requestedRenderCalls = TrajectoryPreparation.increment(preparation.requestedRenderCalls);
+        }
         Minecraft mc = Minecraft.getMinecraft();
         if (!mod.shouldRenderProjectiles() || mc == null || mc.thePlayer == null || mc.theWorld == null || mc.gameSettings.hideGUI) {
             return;
         }
 
         Trajectory trajectory = computeTrajectory(mc, mc.thePlayer, event.getPartialTicks());
+        if (preparation.lastComputationActive) {
+            preparation.activeRenderCalls = TrajectoryPreparation.increment(preparation.activeRenderCalls);
+        }
         if (trajectory == null || trajectory.points.size() < 2) {
             return;
         }
@@ -54,7 +64,45 @@ public class ProjectileTrajectoryRenderer {
         drawTrajectory(mc, trajectory);
     }
 
+    public void setTrajectoryPreparation(boolean requested) {
+        preparation.setRequested(requested);
+    }
+
+    public void clearTrajectoryPreparation() {
+        preparation.clear();
+    }
+
+    public void disconnectTrajectoryPreparation() {
+        preparation.disconnect();
+    }
+
+    public String[] trajectoryPreparationStatus() {
+        return preparation.status();
+    }
+
     private Trajectory computeTrajectory(Minecraft mc, EntityPlayerSP player, float partialTicks) {
+        preparation.computeCalls = TrajectoryPreparation.increment(preparation.computeCalls);
+        if (computing) {
+            preparationInterrupted = true;
+            preparation.invalidate("reentrancy");
+            return computeTrajectoryBody(mc, player, partialTicks, false);
+        }
+        computing = true;
+        preparationInterrupted = false;
+        preparation.lastComputationActive = false;
+        preparation.fallback = preparation.requested ? "inactive-item" : "off";
+        try {
+            return computeTrajectoryBody(mc, player, partialTicks, true);
+        } finally {
+            preparation.lastComputationActive = preparation.current != null && preparation.current.countedActive;
+            if (preparation.current != null) preparation.current.disable();
+            preparation.current = null;
+            computing = false;
+        }
+    }
+
+    private Trajectory computeTrajectoryBody(Minecraft mc, EntityPlayerSP player, float partialTicks,
+                                              boolean allowPreparation) {
         ItemStack heldItem = player.getHeldItem();
         if (heldItem == null) {
             return null;
@@ -102,11 +150,22 @@ public class ProjectileTrajectoryRenderer {
         boolean hitBlock = false;
         PlayerHit playerHit = null;
 
+        // Start only after original held-item/aim reads. A nested compute uses the original path.
+        TrajectoryPreparation.Scratch scratch = null;
+        if (allowPreparation && preparation.requested && !preparationInterrupted) {
+            if (mc.isCallingFromMinecraftThread()) {
+                scratch = new TrajectoryPreparation.Scratch(mc.theWorld);
+                preparation.current = scratch;
+                preparation.fallback = "none-source-only";
+            } else {
+                preparation.fallback = "non-client-thread";
+            }
+        }
         for (int i = 0; i < MAX_STEPS; i++) {
             Vec3 current = new Vec3(posX, posY, posZ);
             Vec3 next = new Vec3(posX + motionX, posY + motionY, posZ + motionZ);
             MovingObjectPosition blockHit = mc.theWorld.rayTraceBlocks(current, next, false, true, false);
-            PlayerHit segmentPlayerHit = findPlayerHit(mc, player, current, next, partialTicks);
+            PlayerHit segmentPlayerHit = findPlayerHit(mc, player, current, next, partialTicks, scratch);
 
             if (blockHit != null && (segmentPlayerHit == null || distanceSquared(current, blockHit.hitVec) <= distanceSquared(current, segmentPlayerHit.hitVec))) {
                 points.add(blockHit.hitVec);
@@ -133,19 +192,51 @@ public class ProjectileTrajectoryRenderer {
     }
 
     private PlayerHit findPlayerHit(Minecraft mc, EntityPlayerSP shooter, Vec3 current, Vec3 next, float partialTicks) {
+        return findPlayerHit(mc, shooter, current, next, partialTicks, null);
+    }
+
+    private PlayerHit findPlayerHit(Minecraft mc, EntityPlayerSP shooter, Vec3 current, Vec3 next, float partialTicks,
+                                    TrajectoryPreparation.Scratch scratch) {
         PlayerHit closest = null;
         double closestDistanceSquared = Double.MAX_VALUE;
 
+        if (scratch != null && !scratch.disabled) {
+            if (mc.theWorld != scratch.world) {
+                preparation.invalidate("world-change");
+            } else if (mc.theWorld.playerEntities.getClass() != ArrayList.class) {
+                // Unknown collections may have stateful size/iteration methods. Do not inspect size.
+                preparation.invalidate("unknown-player-list");
+            } else if (mc.theWorld.playerEntities.size() > TrajectoryPreparation.CAPACITY) {
+                preparation.invalidate("scene-cap");
+            }
+            if (!scratch.disabled && !scratch.countedActive) {
+                scratch.countedActive = true;
+                preparation.activeComputations = TrajectoryPreparation.increment(preparation.activeComputations);
+            }
+        }
+        int index = 0;
         for (EntityPlayer target : mc.theWorld.playerEntities) {
+            int slot = index++;
             if (!shouldCollideWithPlayer(target, shooter)) {
+                if (scratch != null && !scratch.disabled && slot < TrajectoryPreparation.CAPACITY) {
+                    if (scratch.derived[slot] != null) preparation.invalidations = TrajectoryPreparation.increment(preparation.invalidations);
+                    scratch.clearSlot(slot);
+                }
                 continue;
             }
 
-            AxisAlignedBB hitbox = interpolatedBoundingBox(target, partialTicks).expand(
+            AxisAlignedBB hitbox;
+            if (scratch != null && !scratch.disabled && slot < TrajectoryPreparation.CAPACITY) {
+                hitbox = preparedBoundingBox(target, partialTicks, scratch, slot);
+            } else {
+                preparation.baselinePreparations = TrajectoryPreparation.increment(preparation.baselinePreparations);
+                if (preparation.requested) preparation.fallbackPreparations = TrajectoryPreparation.increment(preparation.fallbackPreparations);
+                hitbox = interpolatedBoundingBox(target, partialTicks).expand(
                     PLAYER_HITBOX_EXPANSION,
                     PLAYER_HITBOX_EXPANSION,
                     PLAYER_HITBOX_EXPANSION
-            );
+                );
+            }
             MovingObjectPosition intercept = hitbox.calculateIntercept(current, next);
             Vec3 hitVec = intercept == null ? (hitbox.isVecInside(current) ? current : null) : intercept.hitVec;
             if (hitVec == null) {
@@ -160,6 +251,49 @@ public class ProjectileTrajectoryRenderer {
         }
 
         return closest;
+    }
+
+    private AxisAlignedBB preparedBoundingBox(EntityPlayer player, float partialTicks,
+                                              TrajectoryPreparation.Scratch scratch, int slot) {
+        // Keep the original getter, interpolation reads, and offset argument evaluation order EVERY segment.
+        AxisAlignedBB currentBox = player.getEntityBoundingBox();
+        double interpolatedX = OptimalZoneMod.interpolate(player.lastTickPosX, player.posX, partialTicks);
+        double interpolatedY = OptimalZoneMod.interpolate(player.lastTickPosY, player.posY, partialTicks);
+        double interpolatedZ = OptimalZoneMod.interpolate(player.lastTickPosZ, player.posZ, partialTicks);
+        double offsetX = interpolatedX - player.posX;
+        double offsetY = interpolatedY - player.posY;
+        double offsetZ = interpolatedZ - player.posZ;
+
+        // A getter may reenter, clear, toggle, or disconnect. Such a call invalidates this scope.
+        if (!scratch.disabled && TrajectoryPreparation.Scratch.eligible(currentBox, offsetX, offsetY, offsetZ)) {
+            if (scratch.matches(slot, player, currentBox, offsetX, offsetY, offsetZ)) {
+                preparation.reuses = TrajectoryPreparation.increment(preparation.reuses);
+                return scratch.derived[slot];
+            }
+            preparation.misses = TrajectoryPreparation.increment(preparation.misses);
+            if (scratch.derived[slot] != null) {
+                preparation.invalidations = TrajectoryPreparation.increment(preparation.invalidations);
+            }
+            AxisAlignedBB offset = currentBox.offset(offsetX, offsetY, offsetZ);
+            AxisAlignedBB expanded = offset.expand(PLAYER_HITBOX_EXPANSION, PLAYER_HITBOX_EXPANSION, PLAYER_HITBOX_EXPANSION);
+            preparation.baselinePreparations = TrajectoryPreparation.increment(preparation.baselinePreparations);
+            if (!scratch.disabled && TrajectoryPreparation.Scratch.eligible(offset, 0, 0, 0)
+                    && TrajectoryPreparation.Scratch.eligible(expanded, 0, 0, 0)) {
+                scratch.store(slot, player, currentBox, offsetX, offsetY, offsetZ, expanded);
+            } else {
+                preparation.invalidate("derived-shape-or-nonfinite");
+            }
+            return expanded;
+        }
+        if (!scratch.disabled) {
+            preparation.fallback = "box-class-or-nonfinite";
+            if (scratch.derived[slot] != null) preparation.invalidations = TrajectoryPreparation.increment(preparation.invalidations);
+            scratch.clearSlot(slot);
+        }
+        preparation.baselinePreparations = TrajectoryPreparation.increment(preparation.baselinePreparations);
+        preparation.fallbackPreparations = TrajectoryPreparation.increment(preparation.fallbackPreparations);
+        return currentBox.offset(offsetX, offsetY, offsetZ).expand(
+                PLAYER_HITBOX_EXPANSION, PLAYER_HITBOX_EXPANSION, PLAYER_HITBOX_EXPANSION);
     }
 
     private boolean shouldCollideWithPlayer(EntityPlayer target, EntityPlayerSP shooter) {

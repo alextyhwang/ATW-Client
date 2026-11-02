@@ -1,4 +1,4 @@
-param([string]$BundleDir = $PSScriptRoot)
+param([string]$BundleDir = $PSScriptRoot, [switch]$Release)
 $ErrorActionPreference = 'Stop'
 $BundleDir = [IO.Path]::GetFullPath($BundleDir)
 function Require-File([string]$Relative) {
@@ -63,6 +63,22 @@ foreach ($root in $assetRoots) {
     if (!$missing.Count) { $validAssets = $true; break }
 }
 if (!$validAssets) { throw 'Minecraft 1.8 asset index or referenced objects are incomplete.' }
+# Without admin rights Windows cannot enable long paths, so keep room for the extraction folder.
+$longest = Get-ChildItem -LiteralPath $BundleDir -Recurse -File -Force |
+    ForEach-Object { $_.FullName.Substring($BundleDir.TrimEnd('\').Length + 1) } |
+    Sort-Object Length -Descending | Select-Object -First 1
+if ($longest.Length -gt 170) { throw "Package path too long for Windows without long-path support ($($longest.Length) chars): $longest" }
+function Find-AccountFiles([string]$Root) {
+    # Filter by name explicitly: Windows PowerShell 5.1 ignores -Include when it is
+    # combined with -LiteralPath, which made every file look like an account file.
+    $names = @('accounts.json', 'launcher_lc_msa.json', 'launcher_accounts.json', 'account.dat')
+    @(Get-ChildItem -LiteralPath $Root -Recurse -File -Force | Where-Object { $names -contains $_.Name })
+}
+if ($Release) {
+    # A shareable package must not contain any login token.
+    $secrets = @(Find-AccountFiles $BundleDir)
+    if ($secrets.Count) { throw "Package contains account files: $($secrets.FullName -join ', ')" }
+}
 & (Join-Path $BundleDir 'runtime/java/bin/java.exe') -version
 if ($LASTEXITCODE -ne 0) { throw 'Bundled Java cannot run on this machine.' }
 Write-Host 'Portable dependency checks passed.'

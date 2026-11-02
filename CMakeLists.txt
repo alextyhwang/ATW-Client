@@ -93,6 +93,15 @@ set(ATW_CORE_SOURCES
         src/core/agents/javaagents.h
         src/core/mods/weavemods.cpp
         src/core/mods/weavemods.h
+        src/auth/msaauth.cpp
+        src/auth/msaauth.h
+        src/auth/accountstore.cpp
+        src/auth/accountstore.h
+)
+
+set(ATW_AUTH_UI_SOURCES
+        src/auth/signindialog.cpp
+        src/auth/signindialog.h
 )
 
 set(ATW_WIDGET_UI_SOURCES
@@ -134,6 +143,9 @@ set(ATW_WIDGET_UI_SOURCES
         src/gui/mods/modsview.h
         src/gui/style/removeoutline.cpp
         src/gui/style/removeoutline.h
+        src/gui/widgets/accountwidget.cpp
+        src/gui/widgets/accountwidget.h
+        ${ATW_AUTH_UI_SOURCES}
 )
 
 set(UPDATER_SOURCES src/updater/updatechecker.cpp src/updater/updatechecker.h)
@@ -162,11 +174,17 @@ find_package(${QT_VER} COMPONENTS ${QT_COMPONENTS} REQUIRED)
 add_library(atw_core INTERFACE)
 target_sources(atw_core INTERFACE ${ATW_CORE_SOURCES} ${VERSION_FILE})
 target_include_directories(atw_core INTERFACE src ${CMAKE_BINARY_DIR})
+if(WIN32)
+    # DPAPI (CryptProtectData) encrypts the saved Microsoft sign-in.
+    target_link_libraries(atw_core INTERFACE crypt32)
+endif()
 
 # ----------------------------- Executable --------------------------------------
 
 add_executable(atw-config WIN32 MACOSX_BUNDLE src/apps/config_main.cpp ${ATW_WIDGET_UI_SOURCES} res.qrc)
-add_executable(atw-launch WIN32 MACOSX_BUNDLE src/apps/launch_main.cpp res.qrc)
+add_executable(atw-launch WIN32 MACOSX_BUNDLE src/apps/launch_main.cpp
+        src/auth/accountgate.cpp src/auth/accountgate.h
+        src/auth/onlinereadiness.cpp src/auth/onlinereadiness.h ${ATW_AUTH_UI_SOURCES} res.qrc)
 target_compile_definitions(atw-config PRIVATE ATW_CONFIG_ONLY ATW_PACKAGE_MODE)
 target_compile_definitions(atw-launch PRIVATE ATW_PACKAGE_MODE)
 

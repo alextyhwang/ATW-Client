@@ -47,6 +47,7 @@ public final class NameProbeHook extends Hook implements Opcodes {
     }
     @Override public void transform(ClassNode node, AssemblerConfig cfg) {
         Set<String> observed = new HashSet<>();
+        boolean forwardTargetObserved=false;
         NameProbeHookStage stage = null;
         try { stage = new NameProbeHookStage(node); }
         catch (IllegalArgumentException e) { /* Invalid/ambiguous loader proof retains originals. */ }
@@ -57,6 +58,7 @@ public final class NameProbeHook extends Hook implements Opcodes {
             MethodNode identity = new MethodNode(m.access,name,m.desc,null,null);
             int metric = metric(node.name,identity);
             if (metric < 0) continue;
+            if(metric==3)forwardTargetObserved=true;
             String signature = node.name + "." + name + m.desc;
             observed.add(signature);
             boolean installed = false;
@@ -68,10 +70,19 @@ public final class NameProbeHook extends Hook implements Opcodes {
             if (comparison == null) result = "UNAVAILABLE: invalid/ambiguous Weave conflict-name proof; original path retained";
             else if (installed) result = "installed";
             else if (!matches(node.name,comparison)) result = "UNAVAILABLE: unknown exact method body/access/descriptor; original path retained";
-            else { wrap(m, metric); cfg.computeFrames(); result = "installed"; }
+            else {
+                boolean forward=metric==3 && ForwardHoverHook.compose(node,m,comparison);
+                if(metric==3 && !forward)com.atw.renderboost.cache.ForwardHoverRuntime.evidence(node.name,false,null);
+                if(!forward)wrap(m, metric);
+                cfg.computeFrames(); result = "installed";
+            }
+            if(metric==3 && (comparison==null || installed || !matches(node.name,comparison)))
+                com.atw.renderboost.cache.ForwardHoverRuntime.evidence(node.name,false,null);
             NameProbeRuntime.coverage(signature,result);
             System.out.println("[ATW name probe] " + signature + ": " + result);
         }
+        if(node.name.equals(ForwardHoverHook.ENTITY) && !forwardTargetObserved)
+            com.atw.renderboost.cache.ForwardHoverRuntime.evidence(node.name,false,null);
         for (String key : EVIDENCE.stringPropertyNames()) if (key.startsWith(node.name+".") && !observed.contains(key)) {
             NameProbeRuntime.coverage(key,"UNAVAILABLE: exact method missing; original path retained");
             System.out.println("[ATW name probe] " + key + ": UNAVAILABLE (missing exact method); original path retained");

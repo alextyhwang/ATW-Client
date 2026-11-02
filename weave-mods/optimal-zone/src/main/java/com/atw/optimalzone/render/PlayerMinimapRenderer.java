@@ -1286,63 +1286,6 @@ public class PlayerMinimapRenderer {
         }
     }
 
-    private static final class ProfileUuidSet {
-        private long[] mostBits = new long[16];
-        private long[] leastBits = new long[16];
-        private int size;
-
-        private void clear() {
-            size = 0;
-        }
-
-        private void add(UUID id) {
-            long most = id.getMostSignificantBits();
-            long least = id.getLeastSignificantBits();
-            if (contains(most, least)) {
-                return;
-            }
-            ensureCapacity(size + 1);
-            mostBits[size] = most;
-            leastBits[size] = least;
-            size++;
-        }
-
-        private int countMissingFrom(ProfileUuidSet other) {
-            int missing = 0;
-            for (int index = 0; index < size; index++) {
-                if (!other.contains(mostBits[index], leastBits[index])) {
-                    missing++;
-                }
-            }
-            return missing;
-        }
-
-        private void copyFrom(ProfileUuidSet other) {
-            ensureCapacity(other.size);
-            System.arraycopy(other.mostBits, 0, mostBits, 0, other.size);
-            System.arraycopy(other.leastBits, 0, leastBits, 0, other.size);
-            size = other.size;
-        }
-
-        private boolean contains(long most, long least) {
-            for (int index = 0; index < size; index++) {
-                if (mostBits[index] == most && leastBits[index] == least) {
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        private void ensureCapacity(int capacity) {
-            if (capacity <= mostBits.length) {
-                return;
-            }
-            int newCapacity = Math.max(capacity, mostBits.length * 2);
-            mostBits = Arrays.copyOf(mostBits, newCapacity);
-            leastBits = Arrays.copyOf(leastBits, newCapacity);
-        }
-    }
-
     private String renderPerformanceSummary() {
         return String.format(
                 Locale.ROOT,

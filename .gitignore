@@ -256,6 +256,7 @@ secrets.*
 !/weave-mods/raw-input/
 !/weave-mods/no-hit-delay/
 !/weave-mods/atw-render-boost/
+!/weave-mods/atw-event-dispatch/
 /weave-mods/*/*
 !/weave-mods/*/src/
 !/weave-mods/*/gradle/
@@ -267,6 +268,7 @@ secrets.*
 !/weave-mods/*/*.ps1
 !/weave-mods/*/*.md
 !/weave-mods/*/.gitignore
+!/weave-mods/atw-event-dispatch/LICENSE
 **/atw-levelhead-local.properties
 /upgrade-work/
 /releases/

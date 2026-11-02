@@ -2,10 +2,11 @@ param(
     [string]$BuildDir = (Join-Path $PSScriptRoot '..\build'),
     [string]$OutputDir = (Join-Path $PSScriptRoot ('..\releases\ATW-Portable-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))),
     [string]$SettingsPath,
-    [string]$LunarUserDir = (Join-Path $env:USERPROFILE '.lunarclient'),
-    [switch]$WithoutAccount,
     [switch]$Zip
 )
+# Builds a slim, account-free Minecraft 1.8.9 package from the build's private home.
+# Only 1.8.9 files, configs, settings, Weave mods and enabled resource packs are copied.
+# Worlds, screenshots, replays, logs, caches and every login token are left out.
 $ErrorActionPreference = 'Stop'
 $BuildDir = [IO.Path]::GetFullPath($BuildDir)
 $OutputDir = [IO.Path]::GetFullPath($OutputDir)
@@ -17,6 +18,19 @@ $settings = if (Test-Path -LiteralPath $SettingsPath) {
     Get-Content -LiteralPath $SettingsPath -Raw | ConvertFrom-Json
 } else { [pscustomobject]@{} }
 
+$sourceHome = Join-Path $BuildDir 'data/home'
+$sourceLunar = Join-Path $sourceHome '.lunarclient'
+$sourceMinecraft = Join-Path $sourceHome 'AppData/Roaming/.minecraft'
+$gameRelative = 'data/home/AppData/Roaming/.minecraft/lunarclient'
+$sourceGame = Join-Path $BuildDir $gameRelative
+$targetHome = Join-Path $OutputDir 'data/home'
+$targetLunar = Join-Path $targetHome '.lunarclient'
+$targetMinecraft = Join-Path $targetHome 'AppData/Roaming/.minecraft'
+$targetGame = Join-Path $OutputDir $gameRelative
+
+# Files that hold Microsoft/Lunar/Mojang login tokens. Never package them.
+$secretFiles = @('accounts.json', 'launcher_lc_msa.json', 'launcher_accounts.json', '*.bak')
+
 function Set-Setting([string]$Name, $Value) {
     $settings | Add-Member -NotePropertyName $Name -NotePropertyValue $Value -Force
 }
@@ -24,20 +38,35 @@ function Resolve-Source([string]$Path) {
     if ([IO.Path]::IsPathRooted($Path)) { return $Path }
     return Join-Path $BuildDir $Path
 }
-function Copy-Tree([string]$Source, [string]$Destination) {
-    if (!(Test-Path -LiteralPath $Source -PathType Container)) { throw "Missing runtime directory: $Source" }
-    Write-Host "Copying $Source"
+function Copy-Tree([string]$Source, [string]$Destination, [string[]]$ExcludeFiles = @(), [string[]]$ExcludeDirs = @()) {
+    if (!(Test-Path -LiteralPath $Source -PathType Container)) { throw "Missing directory: $Source" }
     New-Item -ItemType Directory -Path $Destination -Force | Out-Null
-    # Never follow profile junctions or bring historical logs into the package.
-    & robocopy $Source $Destination /E /XJ /MT:8 /R:1 /W:1 /NFL /NDL /NJH /NJS /NP /XF *.log /XD logs crash-reports | Out-Null
+    # Never follow junctions or bring logs, crash reports or token files into the package.
+    $xf = @('*.log', 'hs_err_pid*') + $secretFiles + $ExcludeFiles
+    $xd = @('logs', 'crash-reports') + $ExcludeDirs
+    & robocopy $Source $Destination /E /XJ /MT:8 /R:1 /W:1 /NFL /NDL /NJH /NJS /NP /XF @xf /XD @xd | Out-Null
     if ($LASTEXITCODE -gt 7) { throw "Copy failed ($LASTEXITCODE): $Source" }
 }
-function Copy-Required([string]$Relative) {
-    $source = Join-Path $BuildDir $Relative
-    if (!(Test-Path -LiteralPath $source -PathType Leaf)) { throw "Missing build dependency: $source" }
-    $target = Join-Path $OutputDir $Relative
-    New-Item -ItemType Directory -Path (Split-Path $target) -Force | Out-Null
-    Copy-Item -LiteralPath $source -Destination $target
+function Copy-File([string]$Source, [string]$Destination) {
+    if (!(Test-Path -LiteralPath $Source -PathType Leaf)) { throw "Missing file: $Source" }
+    New-Item -ItemType Directory -Path (Split-Path $Destination) -Force | Out-Null
+    Copy-Item -LiteralPath $Source -Destination $Destination
+}
+function Copy-Optional([string]$Source, [string]$Destination) {
+    if (Test-Path -LiteralPath $Source -PathType Leaf) { Copy-File $Source $Destination }
+    elseif (Test-Path -LiteralPath $Source -PathType Container) { Copy-Tree $Source $Destination }
+}
+# Copy an asset index and only the objects it references.
+function Copy-AssetIndex([string]$SourceAssets, [string]$TargetAssets, [string]$IndexName) {
+    $index = Join-Path $SourceAssets "indexes/$IndexName.json"
+    if (!(Test-Path -LiteralPath $index)) { throw "Missing asset index: $index" }
+    Copy-File $index (Join-Path $TargetAssets "indexes/$IndexName.json")
+    $objects = (Get-Content -LiteralPath $index -Raw | ConvertFrom-Json).objects.PSObject.Properties
+    foreach ($object in $objects) {
+        $hash = $object.Value.hash
+        $relative = 'objects/' + $hash.Substring(0, 2) + '/' + $hash
+        Copy-File (Join-Path $SourceAssets $relative) (Join-Path $TargetAssets $relative)
+    }
 }
 
 foreach ($file in @('atw-launch.exe', 'atw-config.exe', 'platforms/qwindows.dll',
@@ -47,53 +76,96 @@ foreach ($file in @('atw-launch.exe', 'atw-config.exe', 'platforms/qwindows.dll'
     'data/home/.weave/.maven-repository/net/weavemc/api/api-v1_8/1.4.1/api-v1_8-1.4.1.jar')) {
     if (!(Test-Path -LiteralPath (Join-Path $BuildDir $file))) { throw "Build first; missing $file" }
 }
-
-$gameSource = if ($settings.useCustomMinecraftDir -and $settings.customMinecraftDir) {
-    Resolve-Source $settings.customMinecraftDir
-} else { Join-Path $env:APPDATA '.minecraft/lunarclient' }
-if (!(Test-Path -LiteralPath $gameSource)) { throw "Minecraft game folder missing: $gameSource" }
-$accountSource = Join-Path $LunarUserDir 'settings/game/accounts.json'
-if (!$WithoutAccount -and !(Test-Path -LiteralPath $accountSource)) {
-    throw 'No Lunar account snapshot found. Set -LunarUserDir or use -WithoutAccount.'
-}
+if (!(Test-Path -LiteralPath (Join-Path $sourceGame 'options.txt'))) { throw "Minecraft game folder missing: $sourceGame" }
 
 New-Item -ItemType Directory -Path $OutputDir | Out-Null
-foreach ($file in @('atw-launch.exe', 'atw-config.exe', 'minecraft.ico', 'icon-config.ico', 'icon-launch.ico')) { Copy-Required $file }
+
+Write-Host 'Copying launcher, Qt and agents'
+foreach ($file in @('atw-launch.exe', 'atw-config.exe', 'minecraft.ico', 'icon-config.ico', 'icon-launch.ico')) {
+    Copy-File (Join-Path $BuildDir $file) (Join-Path $OutputDir $file)
+}
 Get-ChildItem -LiteralPath $BuildDir -Filter '*.dll' -File | Copy-Item -Destination $OutputDir
 foreach ($dir in @('platforms', 'styles', 'imageformats', 'iconengines', 'tls',
-    "agents (DON'T TOUCH)", "libs (DON'T TOUCH)", 'runtime/java', 'runtime/weave', 'data/home/.weave/mods', 'data/home/.weave/.maven-repository')) {
+    "agents (DON'T TOUCH)", "libs (DON'T TOUCH)", 'runtime/weave', 'data/home/.weave/mods', 'data/home/.weave/.maven-repository')) {
     Copy-Tree (Join-Path $BuildDir $dir) (Join-Path $OutputDir $dir)
 }
-$privateHome = Join-Path $OutputDir 'data/home'
-$lunarTarget = Join-Path $privateHome '.lunarclient'
-# The build contains the patched game jars. User settings come from the live profile.
-$lunarBuild = Join-Path $BuildDir 'data/home/.lunarclient'
-foreach ($dir in @('offline', 'licenses', 'textures', 'ui', 'game-cache')) {
-    if (Test-Path -LiteralPath (Join-Path $lunarBuild $dir)) {
-        Copy-Tree (Join-Path $lunarBuild $dir) (Join-Path $lunarTarget $dir)
+
+Write-Host 'Copying Java runtime (without JDK-only files)'
+Copy-Tree (Join-Path $BuildDir 'runtime/java') (Join-Path $OutputDir 'runtime/java') `
+    -ExcludeFiles @('src.zip', 'ct.sym', 'license-information-user-manual.zip') -ExcludeDirs @('jmods', 'include', 'languages', 'tools')
+
+Write-Host 'Copying Lunar 1.8.9 runtime'
+$sourceMultiver = Join-Path $sourceLunar 'offline/multiver'
+$targetMultiver = Join-Path $targetLunar 'offline/multiver'
+New-Item -ItemType Directory -Path $targetMultiver -Force | Out-Null
+# Version-specific Lunar files carry a v1_<minor> tag; keep 1.8 and the shared ones.
+Get-ChildItem -LiteralPath $sourceMultiver -File |
+    Where-Object { ($_.Name -notmatch 'v1_' -or $_.Name -match 'v1_8([^0-9_]|$)') -and $_.Extension -ne '.log' } |
+    Copy-Item -Destination $targetMultiver
+foreach ($dir in @('.ichor', 'client-natives-win-x86-v1_8', 'natives', 'config', 'mods', 'overrides')) {
+    Copy-Optional (Join-Path $sourceMultiver $dir) (Join-Path $targetMultiver $dir)
+}
+foreach ($dir in @('licenses', 'textures', 'ui')) {
+    Copy-Optional (Join-Path $sourceLunar $dir) (Join-Path $targetLunar $dir)
+}
+
+Write-Host 'Copying Lunar settings and 1.8 profile (no accounts)'
+Copy-Tree (Join-Path $sourceLunar 'settings/game') (Join-Path $targetLunar 'settings/game')
+Copy-Optional (Join-Path $sourceLunar 'profiles/lunar/1.8') (Join-Path $targetLunar 'profiles/lunar/1.8')
+
+Write-Host 'Copying Minecraft 1.8.9 game settings, mods and enabled resource packs'
+New-Item -ItemType Directory -Path $targetGame -Force | Out-Null
+foreach ($name in @('options.txt', 'optionsLC.txt', 'optionsof.txt', 'optionsshaders.txt', 'servers.dat')) {
+    Copy-Optional (Join-Path $sourceGame $name) (Join-Path $targetGame $name)
+}
+foreach ($dir in @('config', 'keystrokes', 'mods', 'versions/1.8.9')) {
+    Copy-Optional (Join-Path $sourceGame $dir) (Join-Path $targetGame $dir)
+}
+# Minecraft 1.8 writes options.txt in the Windows ANSI code page (section signs are 0xA7).
+$packLine = [IO.File]::ReadAllLines((Join-Path $sourceGame 'options.txt'), [Text.Encoding]::GetEncoding(1252)) |
+    Where-Object { $_ -like 'resourcePacks:*' } | Select-Object -First 1
+$enabledPacks = if ($packLine) { @($packLine.Substring('resourcePacks:'.Length) | ConvertFrom-Json) } else { @() }
+$packageTypes = @()
+New-Item -ItemType Directory -Path (Join-Path $targetGame 'resourcepacks') -Force | Out-Null
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+foreach ($pack in $enabledPacks) {
+    $source = Join-Path $sourceGame "resourcepacks/$pack"
+    if (Test-Path -LiteralPath $source -PathType Container) {
+        # Folder packs have deep paths that Windows' built-in unzip cannot extract
+        # without long-path support, so ship them as a zip pack with the same content.
+        Write-Host "  resource pack (zipped): $pack"
+        [IO.Compression.ZipFile]::CreateFromDirectory($source, (Join-Path $targetGame "resourcepacks/$pack.zip"),
+            [IO.Compression.CompressionLevel]::Optimal, $false)
+        $packageTypes += "$pack.zip"
+    } elseif (Test-Path -LiteralPath $source -PathType Leaf) {
+        Write-Host "  resource pack: $pack"
+        Copy-File $source (Join-Path $targetGame "resourcepacks/$pack")
+        $packageTypes += $pack
+    } else { Write-Warning "Enabled resource pack not found: $pack" }
+}
+$ansi = [Text.Encoding]::GetEncoding(1252)
+$optionsPath = Join-Path $targetGame 'options.txt'
+$optionsLines = [IO.File]::ReadAllLines($optionsPath, $ansi) | ForEach-Object {
+    if ($_ -like 'resourcePacks:*') { 'resourcePacks:' + (ConvertTo-Json -InputObject @($packageTypes) -Compress) } else { $_ }
+}
+[IO.File]::WriteAllText($optionsPath, (($optionsLines -join "`n") + "`n"), $ansi)
+
+Write-Host 'Copying Minecraft 1.8 assets and 1.8.9 version files'
+# Lunar reads assets from the game directory; a launch test read none from the parent copy.
+Copy-AssetIndex (Join-Path $sourceGame 'assets') (Join-Path $targetGame 'assets') '1.8'
+Copy-Tree (Join-Path $sourceMinecraft 'versions/1.8.9') (Join-Path $targetMinecraft 'versions/1.8.9')
+$versionJson = Get-Content -LiteralPath (Join-Path $sourceMinecraft 'versions/1.8.9/1.8.9.json') -Raw | ConvertFrom-Json
+foreach ($library in $versionJson.libraries) {
+    $artifacts = @()
+    if ($library.downloads.artifact) { $artifacts += $library.downloads.artifact.path }
+    if ($library.natives.windows -and $library.downloads.classifiers) {
+        $classifier = $library.natives.windows -replace '\$\{arch\}', '64'
+        $native = $library.downloads.classifiers.$classifier
+        if ($native) { $artifacts += $native.path }
     }
-}
-foreach ($dir in @('settings', 'profiles')) {
-    if (Test-Path -LiteralPath (Join-Path $LunarUserDir $dir)) {
-        Copy-Tree (Join-Path $LunarUserDir $dir) (Join-Path $lunarTarget $dir)
-    }
-}
-if ($WithoutAccount) {
-    $copiedAccount = Join-Path $lunarTarget 'settings/game/accounts.json'
-    if (Test-Path -LiteralPath $copiedAccount) { Remove-Item -LiteralPath $copiedAccount }
-} else {
-    $accountTarget = Join-Path $lunarTarget 'settings/game'
-    New-Item -ItemType Directory -Path $accountTarget -Force | Out-Null
-    Copy-Item -LiteralPath $accountSource -Destination $accountTarget -Force
-}
-$gameRelative = 'data/home/AppData/Roaming/.minecraft/lunarclient'
-$gameTarget = Join-Path $OutputDir $gameRelative
-Copy-Tree $gameSource $gameTarget
-# Genesis/legacy libraries may also resolve assets against the parent Minecraft directory.
-$minecraftParent = Split-Path $gameSource -Parent
-foreach ($dir in @('assets', 'libraries', 'versions')) {
-    if (Test-Path -LiteralPath (Join-Path $minecraftParent $dir)) {
-        Copy-Tree (Join-Path $minecraftParent $dir) (Join-Path (Split-Path $gameTarget) $dir)
+    foreach ($path in $artifacts) {
+        $source = Join-Path $sourceMinecraft "libraries/$path"
+        if (Test-Path -LiteralPath $source) { Copy-File $source (Join-Path $targetMinecraft "libraries/$path") }
     }
 }
 
@@ -104,9 +176,7 @@ foreach ($agent in @($settings.agents)) {
     $source = Resolve-Source ([string]$agent.path)
     if (!(Test-Path -LiteralPath $source -PathType Leaf)) { throw "Enabled agent missing: $source" }
     $relative = 'data/agents-custom/{0}/{1}' -f $index++, [IO.Path]::GetFileName($source)
-    $target = Join-Path $OutputDir $relative
-    New-Item -ItemType Directory -Path (Split-Path $target) -Force | Out-Null
-    Copy-Item -LiteralPath $source -Destination $target
+    Copy-File $source (Join-Path $OutputDir $relative)
     $newAgents += [pscustomobject]@{ path = $relative; option = [string]$agent.option; enabled = $true }
 }
 # Helpers may depend on services/installers or sibling files. Require explicit setup
@@ -122,25 +192,39 @@ Set-Setting 'useWeave' $true
 Set-Setting 'weaveOffline' $true
 Set-Setting 'version' '1.8.9'
 Set-Setting 'joinServerOnLaunch' $false
+# Locking pages in memory needs an admin-granted privilege; never request it in the package.
+Set-Setting 'useLargePages' $false
 New-Item -ItemType Directory -Path (Join-Path $OutputDir 'config') -Force | Out-Null
 $settings | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $OutputDir 'config/settings.json') -Encoding UTF8
+
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot '../docs/PORTABLE.md') -Destination (Join-Path $OutputDir 'README.md')
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'verify_portable_bundle.ps1') -Destination $OutputDir
-& (Join-Path $PSScriptRoot 'verify_portable_bundle.ps1') -BundleDir $OutputDir
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'diagnose_server_reachability.ps1') -Destination $OutputDir
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'portable/Start ATW.cmd') -Destination $OutputDir
+& (Join-Path $PSScriptRoot 'verify_portable_bundle.ps1') -BundleDir $OutputDir -Release
+
+$files = Get-ChildItem -LiteralPath $OutputDir -Recurse -File -Force
+Write-Host ('Package: {0:N0} files, {1:N0} MB' -f $files.Count, (($files | Measure-Object Length -Sum).Sum / 1MB))
+
 if ($Zip) {
-    Write-Host 'Compressing the portable archive; large asset collections can take several minutes.'
+    Write-Host 'Compressing the portable archive.'
     $sevenZipCommand = Get-Command 7z.exe -ErrorAction SilentlyContinue
     $sevenZip = if ($sevenZipCommand) { $sevenZipCommand.Source } else { Join-Path $env:ProgramFiles '7-Zip/7z.exe' }
     if (Test-Path -LiteralPath $sevenZip) {
         Push-Location (Split-Path $OutputDir -Parent)
         try {
-            & $sevenZip a -tzip -mx=1 -mmt=8 "$OutputDir.zip" (Split-Path $OutputDir -Leaf)
+            & $sevenZip a -tzip -mx=5 -mmt=on "$OutputDir.zip" (Split-Path $OutputDir -Leaf) | Out-Null
             if ($LASTEXITCODE -ne 0) { throw "7-Zip failed: $LASTEXITCODE" }
         } finally { Pop-Location }
     } else {
         Add-Type -AssemblyName System.IO.Compression.FileSystem
-        [IO.Compression.ZipFile]::CreateFromDirectory($OutputDir, "$OutputDir.zip", [IO.Compression.CompressionLevel]::Fastest, $true)
+        [IO.Compression.ZipFile]::CreateFromDirectory($OutputDir, "$OutputDir.zip", [IO.Compression.CompressionLevel]::Optimal, $true)
     }
-    Write-Host "Archive: $OutputDir.zip"
+    $zipFile = Get-Item -LiteralPath "$OutputDir.zip"
+    $hash = (Get-FileHash -LiteralPath $zipFile.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+    Set-Content -LiteralPath "$($zipFile.FullName).sha256" -Value "$hash  $($zipFile.Name)" -Encoding ASCII
+    Write-Host ('Archive: {0} ({1:N0} MB)' -f $zipFile.FullName, ($zipFile.Length / 1MB))
+    # GitHub release assets are limited to 2 GiB each.
+    if ($zipFile.Length -ge 2GB) { Write-Warning 'Archive exceeds the 2 GiB GitHub release asset limit.' }
 }
 Write-Host "Portable package: $OutputDir"

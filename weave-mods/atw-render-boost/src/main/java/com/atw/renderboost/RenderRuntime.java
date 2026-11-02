@@ -8,6 +8,9 @@ import com.atw.renderboost.cache.GlyphKey;
 import com.atw.renderboost.terrain.TerrainControl;
 import com.atw.renderboost.probe.NameProbeRuntime;
 import com.atw.renderboost.cache.NameParseRuntime;
+import com.atw.renderboost.cache.NameEncodingRuntime;
+import com.atw.renderboost.cache.ForwardHoverRuntime;
+import com.atw.renderboost.cache.NamePrepRuntime;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
@@ -43,8 +46,15 @@ public final class RenderRuntime {
     private static long playerCountSum, entityCountSum;
     private static int playerCountMin, playerCountMax, entityCountMin, entityCountMax;
     private static long[] benchTerrain;
-    private static long[] benchNames;
+    private static long[] benchNames, benchEncoding;
+    private static boolean benchEncodingRequested;
     private static boolean benchNamesRequested;
+    private static long[] benchForward;
+    private static boolean benchForwardRequested;
+    private static long[] benchNamePrep;
+    private static boolean benchNamePrepRequested;
+    private static long[] armedNamePrep;
+    private static boolean armedNamePrepRequested;
     // LWJGL 2's glGetInteger(IntBuffer) validates room for its largest result.
     private static final IntBuffer VIEWPORT = BufferUtils.createIntBuffer(16);
     private static final ExecutorService EXPORT = Executors.newSingleThreadExecutor(r -> {
@@ -92,10 +102,10 @@ public final class RenderRuntime {
                 + ", failed=" + failed + ", lists=" + CACHE.size() + "/2048, hits=" + CACHE.hits
                 + ", misses=" + CACHE.misses + ", compiled=" + CACHE.compilations
                 + ", evicted=" + CACHE.evictions + ", " + TerrainControl.status()
-                + ", " + NameParseRuntime.status() + ", benchmark=" + (session == null ? "idle" : "running");
+                + ", " + NameParseRuntime.status() + ", " + NamePrepRuntime.status() + ", " + NameEncodingRuntime.status() + ", " + ForwardHoverRuntime.status() + ", benchmark=" + (session == null ? "idle" : "running");
     }
     /** Reload hooks may run off-thread: queue deletion, never issue GL calls there. */
-    public static void invalidate() { dirty = true; com.atw.renderboost.terrain.TerrainRuntime.invalidate(); NameParseRuntime.clear(); }
+    public static void invalidate() { dirty = true; com.atw.renderboost.terrain.TerrainRuntime.invalidate(); NameParseRuntime.clear(); NameEncodingRuntime.clear(); ForwardHoverRuntime.clear(); NamePrepRuntime.clear(); }
 
     public static boolean beginGlyph(Object font, int u, int v, int shear, float width, float x, float y) {
         if (Thread.currentThread() != renderThread) return false;
@@ -158,6 +168,9 @@ public final class RenderRuntime {
     public static void frameStart() {
         renderThread = Thread.currentThread();
         NameParseRuntime.frame(renderThread, NameParseRuntime.requested ? Minecraft.getMinecraft().theWorld : null);
+        NameEncodingRuntime.frame(renderThread, NameEncodingRuntime.requested ? Minecraft.getMinecraft().theWorld : null);
+        ForwardHoverRuntime.frame(renderThread, ForwardHoverRuntime.requested ? Minecraft.getMinecraft().theWorld : null);
+        NamePrepRuntime.frame(renderThread, Minecraft.getMinecraft().theWorld);
         com.atw.renderboost.terrain.TerrainRuntime.frameThread();
         long now = System.nanoTime();
         NameProbeRuntime.frame(now);
@@ -209,6 +222,8 @@ public final class RenderRuntime {
         if (session != null || exporting) throw new IllegalStateException("Benchmark/export already active");
         session = new BenchmarkSession(seconds, warmupSeconds);
         requestedAt = System.nanoTime();
+        armedNamePrep = NamePrepRuntime.counters();
+        armedNamePrepRequested = NamePrepRuntime.requested();
         scene = null; metadata = null; countersStarted = false;
         benchmarkMoving = moving;
         workSum = hudSum = 0;
@@ -261,6 +276,9 @@ public final class RenderRuntime {
     private static void sample(long now) {
         if (session == null) return;
         Minecraft mc = Minecraft.getMinecraft();
+        if (armedNamePrepRequested != NamePrepRuntime.requested() || armedNamePrep[0] != NamePrepRuntime.epoch()) {
+            cancelBenchmark("Name formatting preparation mode/evidence/lifecycle changed during warmup or sampling"); return;
+        }
         if (scene == null) {
             if (!ready(mc)) {
                 if (now - requestedAt > 10_000_000_000L) cancelBenchmark("No active unobstructed world within 10s");
@@ -273,11 +291,22 @@ public final class RenderRuntime {
             return;
         }
         try {
+            if (countersStarted && !NamePrepRuntime.stable(benchNamePrep, benchNamePrepRequested)) {
+                cancelBenchmark("Name formatting preparation state/fallback changed"); return;
+            }
             if (countersStarted && (benchNamesRequested != NameParseRuntime.requested
                     || !NameParseRuntime.stable(benchNames, benchNamesRequested))) {
                 cancelBenchmark("Name parse mode/evidence/lifecycle/fallback changed"); return;
             }
+            if (countersStarted && (benchEncodingRequested != NameEncodingRuntime.requested
+                    || !NameEncodingRuntime.stable(benchEncoding, benchEncodingRequested))) {
+                cancelBenchmark("Name encoding mode/evidence/lifecycle/fallback changed"); return;
+            }
             int before = session.count();
+            if (countersStarted && (benchForwardRequested != ForwardHoverRuntime.requested
+                    || !ForwardHoverRuntime.stable(benchForward, benchForwardRequested))) {
+                cancelBenchmark("Forward hover mode/evidence/lifecycle/failure changed"); return;
+            }
             boolean done = session.frame(now, com.atw.renderboost.terrain.TerrainRuntime.benchmarkState());
             if (session.sampling() && !countersStarted) {
                 benchHits = CACHE.hits; benchMisses = CACHE.misses; benchCompiles = CACHE.compilations;
@@ -293,6 +322,24 @@ public final class RenderRuntime {
                 if (benchNamesRequested && !NameParseRuntime.active()) {
                     cancelBenchmark("Name parse cache requested but exact hooks/codec are unavailable"); return;
                 }
+                benchEncoding = NameEncodingRuntime.counters();
+                benchEncodingRequested = NameEncodingRuntime.requested;
+                if (benchEncodingRequested && !NameEncodingRuntime.active()) {
+                    cancelBenchmark("Name encoding requested but composed hooks/actual-loaded factory are unavailable"); return;
+                }
+                NameEncodingRuntime.metadata(metadata);
+                benchForward = ForwardHoverRuntime.counters();
+                benchForwardRequested = ForwardHoverRuntime.requested;
+                if (benchForwardRequested && !ForwardHoverRuntime.active()) {
+                    cancelBenchmark("Forward hover requested but exact producer/dependencies/factory are unavailable"); return;
+                }
+                ForwardHoverRuntime.metadata(metadata);
+                benchNamePrep = NamePrepRuntime.counters();
+                benchNamePrepRequested = NamePrepRuntime.requested();
+                if (benchNamePrepRequested && !NamePrepRuntime.active()) {
+                    cancelBenchmark("Name formatting preparation requested but exact formatter/owner unavailable"); return;
+                }
+                NamePrepRuntime.metadata(metadata);
                 NameParseRuntime.metadata(metadata);
                 metadata.setProperty("terrainStatusAtSamplingStart", TerrainControl.status());
                 countersStarted = true;
@@ -350,6 +397,20 @@ public final class RenderRuntime {
         TerrainControl.export(properties);
         com.atw.renderboost.terrain.TerrainRuntime.exportDelta(properties, benchTerrain);
         NameParseRuntime.exportDelta(properties, benchNames);
+        NameEncodingRuntime.exportDelta(properties, benchEncoding);
+        ForwardHoverRuntime.exportDelta(properties, benchForward);
+        NamePrepRuntime.exportDelta(properties, benchNamePrep);
+        if (!NamePrepRuntime.stable(benchNamePrep, benchNamePrepRequested)
+                || (benchNamePrepRequested && !Boolean.parseBoolean(properties.getProperty("nameprepCacheActive")))) {
+            cancelBenchmark("Name formatting preparation unstable or no measured-window hits"); return;
+        }
+        if (benchForwardRequested && (!ForwardHoverRuntime.stable(benchForward, true)
+                || !Boolean.parseBoolean(properties.getProperty("forwardCacheActive")))) {
+            cancelBenchmark("Forward hover requested but unstable proof/failure or no completed measured-window hits"); return;
+        }
+        if (benchEncodingRequested && !Boolean.parseBoolean(properties.getProperty("encodingCacheActive"))) {
+            cancelBenchmark("Name encoding requested but no measured-window hits"); return;
+        }
         String result = String.format(Locale.ROOT, "%d frames: median %.3fms, p95 %.3fms, p99 %.3fms, avg %.2f FPS",
                 s.samples, s.medianMs, s.p95Ms, s.p99Ms, s.averageFps);
         session = null; scene = null;

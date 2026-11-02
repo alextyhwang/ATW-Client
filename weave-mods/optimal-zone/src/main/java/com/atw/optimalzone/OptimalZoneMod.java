@@ -83,6 +83,7 @@ public class OptimalZoneMod implements ModInitializer {
         EventBus.subscribe(ChatEvent.Received.class, bedwarsBaseAlertManager::onChatReceived);
         EventBus.subscribe(WorldEvent.Load.class, bedwarsBaseAlertManager::onWorldLoad);
         EventBus.subscribe(WorldEvent.Unload.class, bedwarsBaseAlertManager::onWorldUnload);
+        EventBus.subscribe(WorldEvent.Unload.class, event -> trajectoryRenderer.disconnectTrajectoryPreparation());
         EventBus.subscribe(TickEvent.Post.class, this::onTick);
         log("Loaded.");
     }
@@ -158,6 +159,21 @@ public class OptimalZoneMod implements ModInitializer {
         sendModuleState("Chams", chamsEnabled);
     }
 
+    public void trajectoryPreparationCommand(String action) {
+        if ("on".equals(action) || "off".equals(action)) {
+            trajectoryRenderer.setTrajectoryPreparation("on".equals(action));
+        } else if ("clear".equals(action)) {
+            trajectoryRenderer.clearTrajectoryPreparation();
+        }
+        sendTrajectoryPreparationStatus();
+    }
+
+    public void sendTrajectoryPreparationStatus() {
+        for (String line : trajectoryRenderer.trajectoryPreparationStatus()) {
+            sendChat(EnumChatFormatting.YELLOW + line);
+        }
+    }
+
     public void toggleMinimap() {
         minimapEnabled = !minimapEnabled;
         sendModuleState("Minimap", minimapEnabled);
@@ -209,6 +225,7 @@ public class OptimalZoneMod implements ModInitializer {
                 + EnumChatFormatting.YELLOW + "Terrain: " + state(minimapRenderer.isTerrainEnabled())
                 + EnumChatFormatting.GRAY + " | "
                 + EnumChatFormatting.YELLOW + "Invis Overlay: " + state(invisOverlayEnabled));
+        sendTrajectoryPreparationStatus();
     }
 
     public void debugTargetEntity() {

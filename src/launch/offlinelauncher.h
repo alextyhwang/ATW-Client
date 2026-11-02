@@ -17,6 +17,8 @@ public:
     explicit OfflineLauncher(const Config& config, const bool useCustomAssetIndex, const QString& customAssetIndex, QObject* parent = nullptr);
 
     bool launch();
+    // Skips accounts.json and starts with the offline "0" token.
+    void setOfflineMode(bool offline) { offlineMode = offline; }
     bool isProcessRunning() const;
     void endProcess();
 
@@ -39,6 +41,7 @@ private:
 
     QProcess* process = nullptr;
     qint64 launchedPid = 0;
+    bool offlineMode = false;
 };
 
 
