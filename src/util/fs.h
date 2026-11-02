@@ -8,6 +8,9 @@
 #include <QString>
 
 namespace FS {
+    // Both Mac app bundles share the writable directory containing the bundles.
+    // Other layouts use the executable directory. Independent of the working directory.
+    QString getPackageRoot();
     QString combinePaths(const QString& a, const QString& b);
     QString combinePaths(const QString& a, const QString& b, const QString& c);
     QString combinePaths(const QString& a, const QString& b, const QString& c, const QString& d);

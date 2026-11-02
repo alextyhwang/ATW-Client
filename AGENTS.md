@@ -37,6 +37,7 @@ Current important keys:
 - `maxFps`: defaults to `480` and is synchronized to Minecraft and Lunar options before launch.
 - `enableLunarEnable`: defaults to `true` and enables ATW's bundled Hypixel-safe LunarEnable port.
 - `closeOnLaunch`: controls whether the GUI closes after a manual launch. It does not affect `autoLaunchOnOpen` because that path never opens the GUI.
+- `macInputContinuity`: defaults to `false`; Mac launches own `atw.input.macContinuity` after custom JVM args. This startup-only helper experiment requires a rebuilt RawInput jar and Minecraft restart; see `docs/MAC_TEST_CONFIGURATION.md`.
 
 If a prompt asks to disable automatic launch for debugging, set `autoLaunchOnOpen` to `false` in the saved settings or change its default in `Config::load()`. Users can also start the executable with `--gui` to force the launcher window open once.
 

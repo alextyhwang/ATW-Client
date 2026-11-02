@@ -63,6 +63,7 @@ build does not install runtime jars, change settings, or launch Minecraft.
 - `/atwoverlay toggle`
 - `/atwoverlay optimalzone`
 - `/atwoverlay projectiles`
+- `/atwoverlay trajectoryprep on|off|status|clear`
 - `/atwoverlay chams`
 - `/atwoverlay minimap`
 - `/atwoverlay bigmap`
@@ -82,6 +83,25 @@ build does not install runtime jars, change settings, or launch Minecraft.
 `/atwoverlay debugtarget` dumps the entity under your crosshair to chat and
 `latest.log`. It includes the shared real-player classifier result so Hypixel
 NPC/player filtering can be checked in game.
+
+`trajectoryprep` is an independent, default-OFF source experiment for projectile
+hitbox allocations. It keeps every segment's live player filtering, getters,
+network-info checks, interpolation, and collision order. Within one trajectory
+computation it may reuse an immutable derived box only for the same target,
+exact vanilla AABB identity/bounds, and exact offset arguments. Subclasses,
+nonfinite geometry, scenes above 256 loaded entries, unknown player-list classes,
+world changes, reentrancy, and non-client-thread calls use original preparation.
+Scratch references are cleared in `finally`; on/off/clear and world unload also
+invalidate them. World unload resets the request OFF; `clear` resets counters
+and scratch while retaining the request. Feature switches keep their existing
+defaults and remain independent.
+
+Status separates request, source availability, current computation activity,
+fallback reason, render-callback/compute counters, reuse/misses, and original
+preparations. Counters saturate; callbacks are not labelled frames. Exact class
+checks do not qualify Lunar-transformed `offset`/`expand` methods. Status therefore
+always says `liveQualified=false`. No FPS, ping, or hit benefit has been measured.
+See [experiment evidence](../../docs/PVP_TRAJECTORY_EXPERIMENT.md) before integration.
 
 ## Rendering Notes
 

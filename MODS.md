@@ -1,6 +1,10 @@
 # Weave Mod Notes
 
 This client repo versions the six canonical mod source projects in `weave-mods/`.
+The optional `atw-event-dispatch` project is a default-OFF synchronous dispatch
+experiment. Select it explicitly with `scripts/build_mods.ps1 -Modules
+atw-event-dispatch`; the script's default module set remains the six canonical
+projects. See `docs/PVP_EXPERIMENT_TASKS.md` for review and deployment status.
 Generated jars, runtime payloads and private build caches remain ignored.
 LevelHead sources live at:
 

@@ -11,10 +11,23 @@ import net.minecraft.util.MouseHelper;
 
 public class RawMouseHelper
 extends MouseHelper {
+    private RawInput.RawSource previousSource;
+
+    @Override
     public void mouseXYChange() {
-        this.deltaX = RawInput.dx;
-        RawInput.dx = 0;
-        this.deltaY = -RawInput.dy;
-        RawInput.dy = 0;
+        // Drain LWJGL on the game thread even while raw owns movement. Its
+        // deltas would otherwise accumulate and replay on a later fallback.
+        super.mouseXYChange();
+        RawInput.RawSource source = RawInput.activateSource();
+        if (source == null && previousSource == null) return;
+        if (source != previousSource) {
+            previousSource = source;
+            this.deltaX = 0;
+            this.deltaY = 0;
+            return;
+        }
+        long pair = RawInput.consumeDeltas(source);
+        this.deltaX = MouseDeltaAccumulator.x(pair);
+        this.deltaY = -MouseDeltaAccumulator.y(pair);
     }
 }

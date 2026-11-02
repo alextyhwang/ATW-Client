@@ -114,7 +114,14 @@ public final class NameParseHook extends Hook implements Opcodes {
                 if(!TerrainEvidence.fingerprint(m).equals(EVIDENCE.getProperty(node.name+"."+m.name+m.desc)))return false;
             }
             return !comparison.methods.isEmpty();
-        }catch(Throwable ignored){return false;}
+        }catch(Throwable error){
+            // Shared by parse, reverse and forward dependency admission. Fatal
+            // termination must not become an ordinary unsupported-body result.
+            if(error instanceof ThreadDeath)throw (ThreadDeath)error;
+            if(error instanceof VirtualMachineError && !(error instanceof OutOfMemoryError))
+                throw (VirtualMachineError)error;
+            return false;
+        }
     }
     private static boolean startupPublicInitializer(String owner,MethodNode m) {
         return (owner.equals("net/minecraft/nbt/NBTBase") || owner.equals("net/minecraft/nbt/JsonToNBT") || owner.equals("net/minecraft/nbt/JsonToNBT$Primitive"))

@@ -25,7 +25,7 @@ static QString resolvePortablePath(const QString& path) {
     if (path.isEmpty() || QDir::isAbsolutePath(path))
         return path;
 
-    return QDir(QApplication::applicationDirPath()).filePath(path);
+    return QDir(FS::getPackageRoot()).filePath(path);
 #else
     return path;
 #endif
@@ -36,7 +36,7 @@ static QString storePortablePath(const QString& path) {
     if (path.isEmpty() || !QDir::isAbsolutePath(path))
         return path;
 
-    QDir appDir(QApplication::applicationDirPath());
+    QDir appDir(FS::getPackageRoot());
     const QString relativePath = appDir.relativeFilePath(path);
     if (!relativePath.startsWith("..") && !QDir::isAbsolutePath(relativePath))
         return QDir::toNativeSeparators(relativePath);
@@ -47,6 +47,10 @@ static QString storePortablePath(const QString& path) {
 
 #ifdef ATW_TEST_PORTABLE
 static const QString defaultJvmArgs = QString();
+#elif defined(Q_OS_MACOS)
+// Conservative Java 17 baseline. Heap sizing stays in Config; avoid the x86
+// tuning string and fixed young-generation size on an unqualified Mac stack.
+static const QString defaultJvmArgs = QStringLiteral("-XX:+UseG1GC");
 #else
 static const QString defaultJvmArgs = QStringLiteral(
     "-Xverify:none "
@@ -76,9 +80,13 @@ static const QString defaultJvmArgs = QStringLiteral(
 
 static QString packageJavaPath() {
     return FS::combinePaths(
-        FS::combinePaths(QApplication::applicationDirPath(), QStringLiteral("runtime"), QStringLiteral("java")),
+        FS::combinePaths(FS::getPackageRoot(), QStringLiteral("runtime"), QStringLiteral("java")),
         QStringLiteral("bin"),
+#ifdef Q_OS_WIN
         QStringLiteral("java.exe")
+#else
+        QStringLiteral("java")
+#endif
     );
 }
 
@@ -116,6 +124,7 @@ void Config::save() {
 
     saveObj["useWeave"] = useWeave;
     saveObj["weaveOffline"] = weaveOffline;
+    saveObj["macInputContinuity"] = macInputContinuity;
 
     saveObj["windowWidth"] = windowWidth;
     saveObj["windowHeight"] = windowHeight;
@@ -226,6 +235,7 @@ Config Config::load() {
 #endif
         ),
         jsonObj["weaveOffline"].toBool(true),
+        jsonObj["macInputContinuity"].toBool(false),
         agents,
         helpers,
         mods
@@ -264,7 +274,7 @@ QJsonObject Config::loadJsonFromConfig() {
 
 QString Config::configFilePath() {
 #ifdef ATW_LOCAL_PACKAGE_PATHS
-    return FS::combinePaths(QApplication::applicationDirPath(), QStringLiteral("config"), QStringLiteral("settings.json"));
+    return FS::combinePaths(FS::getPackageRoot(), QStringLiteral("config"), QStringLiteral("settings.json"));
 #else
     return legacyConfigFilePath();
 #endif

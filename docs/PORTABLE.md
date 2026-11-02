@@ -1,5 +1,9 @@
 # ATW portable package
 
+The instructions below describe the existing Windows package. Approved Mac
+source foundations and their deferred qualification are documented in
+[MAC_PACKAGE.md](MAC_PACKAGE.md); copied Windows artifacts are not Mac releases.
+
 Extract the entire folder into a writable location on a Windows x64 PC, then
 open `atw-launch.exe`. Open `atw-config.exe` to change settings. Keep the folder
 together when moving it; Java and Qt are included.

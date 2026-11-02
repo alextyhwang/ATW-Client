@@ -10,7 +10,7 @@ weave {
         name = "ATW Render Boost"
         modId = "atw-render-boost"
         entryPoints = listOf("com.atw.renderboost.RenderBoostMod")
-        hooks = listOf("com.atw.renderboost.hook.FrameHook", "com.atw.renderboost.hook.FrameErrorHook", "com.atw.renderboost.hook.FontHook", "com.atw.renderboost.hook.HudHook", "com.atw.renderboost.hook.TerrainHook", "com.atw.renderboost.hook.NameProbeHook", "com.atw.renderboost.hook.NameParseHook")
+        hooks = listOf("com.atw.renderboost.hook.FrameHook", "com.atw.renderboost.hook.FrameErrorHook", "com.atw.renderboost.hook.FontHook", "com.atw.renderboost.hook.HudHook", "com.atw.renderboost.hook.TerrainHook", "com.atw.renderboost.hook.NameProbeHook", "com.atw.renderboost.hook.NameParseHook", "com.atw.renderboost.hook.NameEncodingHook", "com.atw.renderboost.hook.ForwardHoverHook", "com.atw.renderboost.hook.NamePrepHook")
         mcpMappings()
     }
     version("1.8.9")
@@ -98,7 +98,81 @@ if (nameCapturesRequired) {
         "Private name probe proof requires all eleven actual captured inputs"
     }
 }
+// NamePrepCaptureTest reads this pointer beside the first capture even when
+// the separately tagged full restart suite is OFF. Track only its team input.
+val namePrepRestartPointer = nameCaptureRoot.parentFile.resolve("restart-capture-path.txt")
+val namePrepRestartRoot = if (nameCapturesRequired) {
+    check(namePrepRestartPointer.isFile) {
+        "Private nameprep proof requires restart-capture-path.txt beside the first capture; populate private restart evidence or use -PnameCaptureTests=public"
+    }
+    val privatePath = nameProbePrivateRoot.toPath().toRealPath()
+    check(namePrepRestartPointer.toPath().toRealPath().startsWith(privatePath)) {
+        "Nameprep restart pointer must remain under private name-render-probe"
+    }
+    val target = namePrepRestartPointer.readText().trim()
+    check(target.isNotEmpty()) { "Private nameprep restart pointer is empty; populate private restart evidence" }
+    val root = file(target)
+    check(root.toPath().toAbsolutePath().normalize().startsWith(nameCaptureRoot.parentFile.toPath().toAbsolutePath().normalize()) &&
+        root.toPath().toAbsolutePath().normalize().startsWith(nameProbePrivateRoot.toPath().toAbsolutePath().normalize())) {
+        "Nameprep restart inputs must remain private beside the first capture"
+    }
+    check(root.isDirectory) { "Private nameprep restart capture directory is missing; populate private restart evidence" }
+    check(root.toPath().toRealPath().startsWith(privatePath)) {
+        "Nameprep restart capture must remain under private name-render-probe"
+    }
+    root
+} else null
+val namePrepRestartTeam = namePrepRestartRoot?.let { root ->
+    val teams = root.listFiles()?.filter {
+        it.name.startsWith("net_minecraft_scoreboard_ScorePlayerTeam.") && it.name.endsWith(".live.class")
+    }.orEmpty()
+    check(teams.size == 1 && teams.single().isFile) {
+        "Private nameprep restart proof requires exactly one captured ScorePlayerTeam .live.class; populate private restart evidence"
+    }
+    teams.single().also {
+        check(it.toPath().toRealPath().startsWith(nameProbePrivateRoot.toPath().toRealPath())) {
+            "Nameprep restart team input must remain under private name-render-probe"
+        }
+    }
+}
+// Optional actual NamePrepHook-entry bytes stay private and are read in place.
+// Public mode excludes this gate even if the local capture happens to exist.
+val namePrepIncomingMode = providers.gradleProperty("namePrepIncomingTests").orElse("auto").get()
+check(namePrepIncomingMode in listOf("auto", "required", "public")) {
+    "namePrepIncomingTests must be auto, required, or public"
+}
+val namePrepIncomingRoot = file("../../upgrade-work/pvp-experiments-20261006/live/bytecode-startup")
+val namePrepIncomingFile = file(providers.gradleProperty("namePrepIncomingCaptureFile").orElse(
+    namePrepIncomingRoot.resolve("ScorePlayerTeam-hookstage-f536aa77-7256-4a76-8755-377f2dfc41d3.class").absolutePath).get())
+val namePrepIncomingRequired = namePrepIncomingMode == "required" ||
+    (namePrepIncomingMode == "auto" && nameCapturesRequired && namePrepIncomingFile.isFile)
+val namePrepIncomingLoader = file("../../runtime/weave/Weave-Loader-Agent-1.4.1.jar")
+val namePrepIncomingNotes = namePrepIncomingRoot.resolve("capture-run-notes.md")
+if (namePrepIncomingRequired) {
+    check(nameCapturesRequired) { "Incoming nameprep proof requires private name captures; public mode excludes this gate" }
+    check(namePrepIncomingFile.isFile && namePrepIncomingNotes.isFile && namePrepIncomingLoader.isFile) {
+        "Incoming nameprep proof requires actual Hook-entry capture, provenance notes and pinned Weave loader"
+    }
+    check(namePrepIncomingFile.toPath().toAbsolutePath().normalize().startsWith(namePrepIncomingRoot.toPath().toAbsolutePath().normalize()) &&
+        namePrepIncomingFile.toPath().toRealPath().startsWith(namePrepIncomingRoot.toPath().toRealPath())) {
+        "Incoming nameprep capture must stay under private live/bytecode-startup and be read in place"
+    }
+}
+
 tasks.test {
+    inputs.property("namePrepIncomingRequired", namePrepIncomingRequired)
+    if (namePrepIncomingRequired) {
+        inputs.files(namePrepIncomingFile, namePrepIncomingNotes, namePrepIncomingLoader)
+        systemProperty("atwboost.namePrepIncomingCapture", namePrepIncomingFile.absolutePath)
+        systemProperty("atwboost.namePrepIncomingLoader", namePrepIncomingLoader.absolutePath)
+    } else {
+        useJUnitPlatform { excludeTags("private-nameprep-incoming") }
+        doFirst { println("Nameprep actual Hook-entry proof EXCLUDED: no private incoming qualification claimed") }
+    }
+    inputs.file(file(".gradle/weave/client-mcp-named.jar"))
+    systemProperty("atwboost.namePrepMappedJar", file(".gradle/weave/client-mcp-named.jar").absolutePath)
+    providers.gradleProperty("encodingEvidenceOutput").orNull?.let { systemProperty("atwboost.encodingEvidenceOutput", it) }
+    providers.gradleProperty("encodingFactoryEvidenceOutput").orNull?.let { systemProperty("atwboost.encodingFactoryEvidenceOutput", it) }
     val startupMode = providers.gradleProperty("nameCodecStartupTests").orElse("off").get()
     check(startupMode in listOf("off", "required")) { "nameCodecStartupTests must be off or required" }
     val startupRequired = startupMode == "required"
@@ -124,6 +198,18 @@ tasks.test {
         check(codecRoot.toPath().toAbsolutePath().normalize().startsWith(nameProbePrivateRoot.toPath().toAbsolutePath().normalize())) { "Codec inputs must remain private and read in place" }
         check(codecRoot.listFiles()?.count { it.name.endsWith(".live.class") } == 12) { "Codec proof requires twelve actual inputs including Codec interface" }
         inputs.files(fileTree(codecRoot) { include("*.live.class", "capture-report.txt") })
+        val encodingGuava = file("../../build/dependencies/minecraft/lunarclient/libraries/com/google/guava/guava/17.0/guava-17.0.jar")
+        check(encodingGuava.isFile) { "Private encoding parity requires the pinned package Guava 17.0 (disk fixture only)" }
+        inputs.file(encodingGuava)
+        // Actual-loaded factory and fresh hook metadata stay private and are read in place.
+        val encodingFactoryRoot = file("../../upgrade-work/environment-20261005")
+        val encodingFactoryInputs = listOf(
+            encodingFactoryRoot.resolve("name-render-probe/maps-capture-20261005/com_google_common_collect_Maps.loader1.live.class"),
+            encodingFactoryRoot.resolve("name-render-probe/maps-capture-20261005/capture-report.txt"),
+            encodingFactoryRoot.resolve("name-encoding/hookstage/com_google_common_collect_Maps.properties"),
+            file("../../upgrade-work/render-next-20261005/maps-loader-relationship.properties"))
+        encodingFactoryInputs.forEach { check(it.isFile) { "Missing private encoding factory evidence: ${it.name}" } }
+        inputs.files(encodingFactoryInputs)
         systemProperty("atwboost.nameCodecCaptureRoot", codecRoot.absolutePath)
     } else {
         useJUnitPlatform { excludeTags("private-name-codec-capture") }
@@ -135,10 +221,7 @@ tasks.test {
     inputs.property("nameRestartRequired", nameRestartRequired)
     if (nameRestartRequired) {
         check(nameCapturesRequired) { "Name restart proof requires private name captures" }
-        val pointer = nameProbePrivateRoot.resolve("restart-capture-path.txt")
-        check(pointer.isFile) { "Missing private name restart pointer" }
-        val restartRoot = file(pointer.readText().trim())
-        check(restartRoot.toPath().toAbsolutePath().normalize().startsWith(nameProbePrivateRoot.toPath().toAbsolutePath().normalize())) { "Restart inputs must remain private" }
+        val restartRoot = checkNotNull(namePrepRestartRoot)
         check(restartRoot.listFiles()?.count { it.name.endsWith(".live.class") } == 11) { "Name restart proof requires eleven inputs" }
         inputs.files(fileTree(restartRoot) { include("*.live.class", "capture-report.txt") })
         systemProperty("atwboost.nameRestartCaptureRoot", restartRoot.absolutePath)
@@ -149,6 +232,8 @@ tasks.test {
     inputs.property("nameCapturesRequired", nameCapturesRequired)
     if (nameCapturesRequired) {
         inputs.files(fileTree(nameCaptureRoot) { include("*.live.class", "capture-report.txt") })
+        inputs.file(namePrepRestartPointer)
+        inputs.file(checkNotNull(namePrepRestartTeam))
         systemProperty("atwboost.nameCaptureRoot", nameCaptureRoot.absolutePath)
     }
     inputs.property("terrainCapturesRequired", terrainCapturesRequired)

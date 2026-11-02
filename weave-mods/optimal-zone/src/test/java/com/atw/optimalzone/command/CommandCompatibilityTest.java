@@ -92,11 +92,41 @@ class CommandCompatibilityTest {
         assertTrue(MOD.actions.get(0).contains("Usage: /atwoverlay"));
     }
 
+    @Test
+    void trajectoryPreparationValidatesActionsWithoutTogglingFeatures() {
+        for (String action : new String[]{"on", "off", "status", "clear", "ON"}) {
+            MOD.actions.clear();
+            ChatEvent.Sent event = new ChatEvent.Sent("/atwoverlay trajectoryprep " + action);
+            EventBus.postEvent(event);
+            assertTrue(event.isCancelled());
+            assertEquals(List.of("trajectoryprep:" + action.toLowerCase(java.util.Locale.ROOT)), MOD.actions);
+        }
+        for (String suffix : new String[]{"", " enable", " on extra", " status extra"}) {
+            MOD.actions.clear();
+            ChatEvent.Sent event = new ChatEvent.Sent("/atwoverlay trajectoryprep" + suffix);
+            EventBus.postEvent(event);
+            assertTrue(event.isCancelled());
+            assertEquals(1, MOD.actions.size());
+            assertTrue(MOD.actions.get(0).contains("Usage: /atwoverlay trajectoryprep"));
+        }
+    }
+
+    @Test
+    void trajectoryPreparationSuggestionsUsePublishedCommandFreeArgumentShape() {
+        OverlayCommand command = new OverlayCommand(MOD, "atwoverlay", OverlayCommand.Action.STATUS);
+        assertArrayEquals(new String[]{"trajectoryprep"}, command.getSuggestions(new String[]{"trajectoryp"}, null));
+        assertArrayEquals(new String[]{"on", "off", "status", "clear"}, command.getSuggestions(new String[]{"trajectoryprep", ""}, null));
+        assertArrayEquals(new String[]{"off"}, command.getSuggestions(new String[]{"TRAJECTORYPREP", "OF"}, null));
+        assertArrayEquals(new String[0], command.getSuggestions(new String[]{"trajectoryprep", "on", ""}, null));
+        assertArrayEquals(new String[0], command.getSuggestions(new String[0], null));
+    }
+
     private static final class RecordingMod extends OptimalZoneMod {
         final List<String> actions = new ArrayList<>();
         @Override public void toggle() { actions.add("toggle"); }
         @Override public void toggleOptimalZone() { actions.add("optimalzone"); }
         @Override public void toggleProjectiles() { actions.add("projectiles"); }
+        @Override public void trajectoryPreparationCommand(String action) { actions.add("trajectoryprep:" + action); }
         @Override public void toggleChams() { actions.add("chams"); }
         @Override public void toggleMinimap() { actions.add("minimap"); }
         @Override public void toggleBigMap() { actions.add("bigmap"); }

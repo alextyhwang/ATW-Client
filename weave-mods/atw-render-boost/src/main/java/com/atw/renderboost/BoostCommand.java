@@ -14,6 +14,39 @@ public final class BoostCommand extends Command {
         String action = args.length > 1 ? args[1].toLowerCase(java.util.Locale.ROOT) : "status";
         try {
             switch (action) {
+                case "nameprep":
+                    if(args.length>3)throw new IllegalArgumentException("nameprep on|off|status|clear");
+                    String prepAction=args.length>2?args[2].toLowerCase(java.util.Locale.ROOT):"status";
+                    if(prepAction.equals("on") || prepAction.equals("off")) {
+                        RenderRuntime.cancelBenchmark("Name formatting preparation mode changed");
+                        com.atw.renderboost.cache.NamePrepRuntime.request(prepAction.equals("on"));
+                    }else if(prepAction.equals("clear")) {
+                        RenderRuntime.cancelBenchmark("Name formatting preparation cache cleared");
+                        com.atw.renderboost.cache.NamePrepRuntime.clear();
+                    }else if(!prepAction.equals("status"))throw new IllegalArgumentException("nameprep on|off|status|clear");
+                    RenderRuntime.message(com.atw.renderboost.cache.NamePrepRuntime.status());break;
+                case "forward":
+                    if(args.length>3)throw new IllegalArgumentException("forward on|off|status|clear");
+                    String forwardAction=args.length>2?args[2].toLowerCase(java.util.Locale.ROOT):"status";
+                    if(forwardAction.equals("on") || forwardAction.equals("off")) {
+                        RenderRuntime.cancelBenchmark("Forward hover mode changed");
+                        com.atw.renderboost.cache.ForwardHoverRuntime.request(forwardAction.equals("on"));
+                    }else if(forwardAction.equals("clear")) {
+                        RenderRuntime.cancelBenchmark("Forward hover cache cleared");
+                        com.atw.renderboost.cache.ForwardHoverRuntime.clear();
+                    }else if(!forwardAction.equals("status"))throw new IllegalArgumentException("forward on|off|status|clear");
+                    RenderRuntime.message(com.atw.renderboost.cache.ForwardHoverRuntime.status());break;
+                case "encoding":
+                    if(args.length>3)throw new IllegalArgumentException("encoding on|off|status|clear");
+                    String encodingAction=args.length>2?args[2].toLowerCase(java.util.Locale.ROOT):"status";
+                    if(encodingAction.equals("on") || encodingAction.equals("off")) {
+                        RenderRuntime.cancelBenchmark("Name encoding mode changed");
+                        com.atw.renderboost.cache.NameEncodingRuntime.request(encodingAction.equals("on"));
+                    }else if(encodingAction.equals("clear")) {
+                        RenderRuntime.cancelBenchmark("Name encoding cache cleared");
+                        com.atw.renderboost.cache.NameEncodingRuntime.clear();
+                    }else if(!encodingAction.equals("status"))throw new IllegalArgumentException("encoding on|off|status|clear");
+                    RenderRuntime.message(com.atw.renderboost.cache.NameEncodingRuntime.status());break;
                 case "names":
                     if(args.length>3)throw new IllegalArgumentException("names on|off|status|clear");
                     String nameAction=args.length>2?args[2].toLowerCase(java.util.Locale.ROOT):"status";
@@ -52,12 +85,12 @@ public final class BoostCommand extends Command {
                     break;
                 case "cancel": RenderRuntime.cancelBenchmark("Cancelled by command"); break;
                 case "status": RenderRuntime.message(RenderRuntime.status()); break;
-                default: RenderRuntime.message("/atwboost on|off|toggle|clear|status|names on|off|status|clear|terrain on|off|status|probe10 counters|timing|status|stop|bench [30] [10] [stationary|moving]|cancel");
+                default: RenderRuntime.message("/atwboost on|off|toggle|clear|status|names on|off|status|clear|nameprep on|off|status|clear|encoding on|off|status|clear|forward on|off|status|clear|terrain on|off|status|probe10 counters|timing|status|stop|bench [30] [10] [stationary|moving]|cancel");
             }
         } catch (IllegalArgumentException | IllegalStateException e) { RenderRuntime.message(e.getMessage()); }
     }
     @Override public String[] getSuggestions(String[] args, BlockPos target) {
-        if(args.length==2 && args[0].equalsIgnoreCase("names"))
+        if(args.length==2 && (args[0].equalsIgnoreCase("names") || args[0].equalsIgnoreCase("encoding") || args[0].equalsIgnoreCase("forward") || args[0].equalsIgnoreCase("nameprep")))
             return java.util.stream.Stream.of("on","off","status","clear")
                     .filter(s->s.startsWith(args[1].toLowerCase(java.util.Locale.ROOT))).toArray(String[]::new);
         if (args.length == 2 && args[0].equalsIgnoreCase("terrain"))
@@ -67,7 +100,7 @@ public final class BoostCommand extends Command {
             return java.util.stream.Stream.of("counters", "timing", "status", "stop")
                     .filter(s -> s.startsWith(args[1].toLowerCase(java.util.Locale.ROOT))).toArray(String[]::new);
         if (args.length != 1) return new String[0];
-        return java.util.stream.Stream.of("on", "off", "toggle", "clear", "status", "names", "terrain", "probe10", "bench", "cancel")
+        return java.util.stream.Stream.of("on", "off", "toggle", "clear", "status", "names", "nameprep", "encoding", "forward", "terrain", "probe10", "bench", "cancel")
                 .filter(s -> s.startsWith(args[0].toLowerCase(java.util.Locale.ROOT))).toArray(String[]::new);
     }
 }

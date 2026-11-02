@@ -6,6 +6,9 @@
 #define LUNAR_CLIENT_QT_UTILS_H
 
 #include <QString>
+#include <QStringList>
+
+#include "nativeinspection.h"
 
 namespace Utils {
     bool getAgentExists(const QString &name);
@@ -21,6 +24,8 @@ namespace Utils {
     QStringList getClassPath(const QStringList& files, const QString& version, const QString& modLoader);
     QStringList getExternalFiles(const QStringList& files, const QString& version, const QString& modLoader);
     QString getNativesFile(const QStringList& files, const QString& version);
+    QString getNativesFile(const QStringList& files, const QString& version,
+                           const NativeInspection::Platform& platform, QString* error);
 
     QStringList getOrderedAvailableVersions();
     QStringList getAvailableModLoaders(const QString& version);

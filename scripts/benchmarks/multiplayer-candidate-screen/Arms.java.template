@@ -1,0 +1,166 @@
+package screen.@ARM@;
+
+import java.util.*;
+
+/** Identical direct-call workload in each source package; no interface in inner loops. */
+public final class Arms {
+    public static volatile Object escaped;
+    private final ProfileUuidSet current = new ProfileUuidSet();
+    private final ProfileUuidSet previous = new ProfileUuidSet();
+    private final ProfileUuidSet markers = new ProfileUuidSet();
+    private final ProfileUuidSet previousMarkers = new ProfileUuidSet();
+    private final UUID[][] census;
+    private final UUID[][] markerIds;
+    private final UUID[] population;
+    private final int kind;
+    private final int reads;
+    private final String flavor;
+    private LevelTag[] tags;
+    private final Object[] ring = new Object[1024];
+    private static final UUID OWNER = new UUID(0xdeadbeef12345678L, 0xabcdef1234567890L);
+
+    public Arms(String name, UUID[][] census, UUID[][] markerIds, UUID[] population) {
+        this.census = census; this.markerIds = markerIds; this.population = population;
+        String[] parts = name.split("/");
+        this.flavor = parts[parts.length - 1];
+        this.kind = name.startsWith("map-growth") ? 1 : name.startsWith("map-") ? 0
+            : name.startsWith("label-construct/") ? 2 : name.startsWith("label-cold-text/") ? 3
+            : name.startsWith("label-few-text/") ? 4 : name.startsWith("label-few-both/") ? 5
+            : name.startsWith("label-warm-text/") ? 6 : name.startsWith("label-warm-nicked/") ? 7 : 8;
+        this.reads = (kind == 5) ? Integer.parseInt(parts[1]) : 2;
+        escaped = this;
+        if (name.startsWith("map-highwater")) {
+            for (UUID id : screen.Screen.HIGHWATER) {
+                current.add(id); previous.add(id); markers.add(id); previousMarkers.add(id);
+            }
+        }
+        if (kind >= 6) {
+            tags = new LevelTag[128];
+            for (int i = 0; i < tags.length; i++) tags[i] = create(i);
+        }
+    }
+
+    private LevelTag create(int i) {
+        int variant = flavor.equals("plain") ? 0 : flavor.equals("formatted") ? 1
+            : flavor.equals("factory") ? 3 + (i & 1)
+            : (i % 20 < 10) ? 0 : (i % 20 < 16) ? 1 : (i % 20 < 18) ? 2 : i % 20 - 15;
+        String header = screen.Screen.HEADERS[i & 63];
+        String footer = screen.Screen.FOOTERS[i & 63];
+        return switch (variant) {
+            case 0 -> new LevelTag(OWNER, "Level: ", screen.Screen.PLAIN[i & 63]);
+            case 1 -> new LevelTag(OWNER, header, footer);
+            case 2 -> new LevelTag(OWNER, "", (i & 1) == 0 ? "&c&lNICKED" : "\u00a7cNicked");
+            case 3 -> LevelTag.nicked(OWNER);
+            default -> LevelTag.bedwarsNicked(OWNER, footer);
+        };
+    }
+
+    public void prepare(int operations) {
+        if (kind == 0) {
+            current.clear(); previous.clear(); markers.clear(); previousMarkers.clear();
+            for (UUID id : census[63]) previous.add(id);
+            for (UUID id : markerIds[63]) previousMarkers.add(id);
+        } else if (kind == 3) {
+            tags = new LevelTag[operations];
+            for (int i = 0; i < operations; i++) tags[i] = create(i);
+        }
+        escaped = ring; // Published storage prevents object/text reference elimination.
+    }
+
+    public long run(int operations) {
+        long checksum = 0;
+        if (kind == 0) {
+            for (int i = 0; i < operations; i++) {
+                int tick = i & 63;
+                current.clear();
+                for (UUID id : census[tick]) current.add(id);
+                int appears = current.countMissingFrom(previous);
+                int leaves = previous.countMissingFrom(current);
+                previous.copyFrom(current);
+                markers.clear();
+                for (UUID id : markerIds[tick]) markers.add(id);
+                int entries = markers.countMissingFrom(previousMarkers);
+                int exits = previousMarkers.countMissingFrom(markers);
+                previousMarkers.copyFrom(markers);
+                checksum += appears * 31L + leaves * 17L + entries * 13L + exits * 7L
+                    + current.size() * 5L + markers.size();
+            }
+        } else if (kind == 1) {
+            for (int i = 0; i < operations; i++) {
+                ProfileUuidSet set = new ProfileUuidSet();
+                for (UUID id : population) set.add(id);
+                ring[i & 1023] = set;
+                checksum += set.size();
+            }
+        } else {
+            for (int i = 0; i < operations; i++) {
+                LevelTag tag = kind >= 6 ? tags[i & 127] : kind == 3 ? tags[i] : create(i);
+                if (kind == 2) {
+                    ring[i & 1023] = tag;
+                    checksum += tag.getHeader().length() + tag.getFooter().length();
+                } else if (kind == 7) {
+                    for (int r = 0; r < reads; r++) checksum += tag.isNicked() ? 1 : 0;
+                } else {
+                    int count = kind == 3 ? 1 : reads;
+                    for (int r = 0; r < count; r++) {
+                        String text = tag.getText();
+                        ring[(i + r) & 1023] = text;
+                        checksum += text.length() + (text.isEmpty() ? 0 : text.charAt((i + r) % text.length()));
+                        if (kind == 5 || kind == 8) checksum += tag.isNicked() ? 1 : 0;
+                    }
+                    if (kind == 4 || kind == 5) ring[i & 1023] = tag;
+                }
+            }
+        }
+        return checksum;
+    }
+
+    /** Independent HashSet oracle, kept outside all timing/allocation windows. */
+    public void validate() {
+        if (kind <= 1) {
+            Set<UUID> old = new HashSet<>(), oldMarkers = new HashSet<>();
+            current.clear(); previous.clear(); markers.clear(); previousMarkers.clear();
+            for (int tick = 0; tick < 64; tick++) {
+                Set<UUID> now = new HashSet<>(Arrays.asList(census[tick]));
+                Set<UUID> nowMarkers = new HashSet<>(Arrays.asList(markerIds[tick]));
+                current.clear(); markers.clear();
+                for (UUID id : census[tick]) current.add(id);
+                for (UUID id : markerIds[tick]) markers.add(id);
+                check(current.size() == now.size() && markers.size() == nowMarkers.size());
+                check(current.countMissingFrom(previous) == difference(now, old));
+                check(previous.countMissingFrom(current) == difference(old, now));
+                check(markers.countMissingFrom(previousMarkers) == difference(nowMarkers, oldMarkers));
+                check(previousMarkers.countMissingFrom(markers) == difference(oldMarkers, nowMarkers));
+                previous.copyFrom(current); previousMarkers.copyFrom(markers);
+                for (UUID id : screen.Screen.HIGHWATER) {
+                    check(current.contains(id.getMostSignificantBits(), id.getLeastSignificantBits()) == now.contains(id));
+                    check(previous.contains(id.getMostSignificantBits(), id.getLeastSignificantBits()) == now.contains(id));
+                }
+                old = now; oldMarkers = nowMarkers;
+            }
+            UUID[] edges = {new UUID(0, 0), new UUID(0, 1), new UUID(1, 0), new UUID(0, 0), new UUID(-1, Long.MIN_VALUE)};
+            current.clear();
+            for (UUID id : edges) current.add(id);
+            check(current.size() == new HashSet<>(Arrays.asList(edges)).size());
+            previous.copyFrom(current); previous.copyFrom(previous);
+            check(previous.countMissingFrom(current) == 0 && current.countMissingFrom(previous) == 0);
+            for (UUID id : edges) check(previous.contains(id.getMostSignificantBits(), id.getLeastSignificantBits()));
+        } else {
+            for (int i = 0; i < 128; i++) {
+                LevelTag tag = create(i);
+                String expected = tag.getHeader() + tag.getFooter();
+                check(expected.equals(tag.getText()));
+                boolean factory = flavor.equals("factory") || flavor.equals("mix") && i % 20 >= 18;
+                boolean expectedNicked = factory || "NICKED".equalsIgnoreCase(expected.replaceAll("\u00a7.", ""));
+                check(tag.isNicked() == expectedNicked);
+            }
+        }
+    }
+
+    private static int difference(Set<UUID> a, Set<UUID> b) {
+        int count = 0;
+        for (UUID id : a) if (!b.contains(id)) count++;
+        return count;
+    }
+    private static void check(boolean ok) { if (!ok) throw new AssertionError("Parity failed"); }
+}

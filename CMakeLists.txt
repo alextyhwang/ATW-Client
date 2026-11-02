@@ -15,6 +15,28 @@ set(CMAKE_AUTOUIC ON)
 option(INCLUDE_UPDATER "Include update checker" OFF)
 option(ATW_BUILD_LEGACY_TARGETS "Build legacy atw-client and atw-test-exe targets" OFF)
 
+# Never consume copied Windows payloads as Mac artifacts. Use a fresh build
+# directory and explicitly supply the intended Mac Java/Lunar distributions.
+if(APPLE)
+    set(ATW_JAVA_RUNTIME_SOURCE "" CACHE PATH "Mac Java 17 home (contains bin/java and release)")
+    set(ATW_LUNAR_DATA_SOURCE "" CACHE PATH "Mac Lunar data root (contains offline/multiver)")
+    if(NOT EXISTS "${ATW_JAVA_RUNTIME_SOURCE}/bin/java" OR
+       NOT EXISTS "${ATW_JAVA_RUNTIME_SOURCE}/release")
+        message(FATAL_ERROR "Set ATW_JAVA_RUNTIME_SOURCE to a Mac Java 17 home; copied Windows Java is not supported")
+    endif()
+    file(READ "${ATW_JAVA_RUNTIME_SOURCE}/release" ATW_JAVA_RELEASE)
+    if(NOT ATW_JAVA_RELEASE MATCHES "JAVA_VERSION=\"17[.\"]" OR
+       NOT ATW_JAVA_RELEASE MATCHES "OS_NAME=\"(Darwin|Mac OS X|macOS)\"")
+        message(FATAL_ERROR "ATW_JAVA_RUNTIME_SOURCE must describe macOS Java 17")
+    endif()
+    if(NOT EXISTS "${ATW_LUNAR_DATA_SOURCE}/offline/multiver")
+        message(FATAL_ERROR "Set ATW_LUNAR_DATA_SOURCE to the actual Mac Lunar distribution; runtime admission remains required")
+    endif()
+else()
+    set(ATW_JAVA_RUNTIME_SOURCE "${CMAKE_CURRENT_LIST_DIR}/runtime/java" CACHE PATH "Bundled Java runtime source")
+    set(ATW_LUNAR_DATA_SOURCE "${CMAKE_CURRENT_LIST_DIR}/data/lunarclient" CACHE PATH "Bundled Lunar data source")
+endif()
+
 set(QT_COMPONENTS Core Gui Widgets Svg Network)
 
 
@@ -32,6 +54,7 @@ set(QT_VER Qt6)
 endif()
 
 find_program(JAR_EXECUTABLE jar)
+find_package(ZLIB REQUIRED)
 
 # ---------------------------- Get current version and tag --------------------------------
 set(LCQT_VERSION 0.0.1)
@@ -89,6 +112,8 @@ set(ATW_CORE_SOURCES
         src/util/fs.h
         src/util/utils.cpp
         src/util/utils.h
+        src/util/nativeinspection.cpp
+        src/util/nativeinspection.h
         src/core/agents/javaagents.cpp
         src/core/agents/javaagents.h
         src/core/mods/weavemods.cpp
@@ -172,6 +197,17 @@ target_compile_definitions(atw-launch PRIVATE ATW_PACKAGE_MODE)
 
 set(ATW_TARGETS atw-config atw-launch)
 
+if(APPLE)
+    # FS::getPackageRoot resolves the parent of each .app to this shared root.
+    # Generator expression prevents multi-config generators adding Debug/Release.
+    set_target_properties(atw-config atw-launch PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "$<1:${CMAKE_BINARY_DIR}>"
+        MACOSX_BUNDLE_BUNDLE_VERSION "${LCQT_VERSION}"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "${LCQT_VERSION}")
+    set_target_properties(atw-config PROPERTIES MACOSX_BUNDLE_GUI_IDENTIFIER "local.atw.config")
+    set_target_properties(atw-launch PROPERTIES MACOSX_BUNDLE_GUI_IDENTIFIER "local.atw.launch")
+endif()
+
 if(ATW_BUILD_LEGACY_TARGETS)
     add_executable(atw-client WIN32 MACOSX_BUNDLE src/main.cpp ${ATW_WIDGET_UI_SOURCES} res.qrc)
     add_executable(atw-test-exe WIN32 MACOSX_BUNDLE src/main.cpp ${ATW_WIDGET_UI_SOURCES} res.qrc)
@@ -189,17 +225,15 @@ endif()
 
 # ------------------------- Copy java agents and libraries -----------------------
 
-if(UNIX AND APPLE)
-    set(JAR_DEST_DIR ${CMAKE_BINARY_DIR}/atw-config.app/Contents/MacOS)
-else()
-    set(JAR_DEST_DIR ${CMAKE_BINARY_DIR})
-endif()
+set(JAR_DEST_DIR ${CMAKE_BINARY_DIR})
+set(ATW_JAVA_AGENTS_SOURCE "${CMAKE_CURRENT_LIST_DIR}/java/agents" CACHE PATH "Selected Java agent source directory")
+set(ATW_JAVA_LIBS_SOURCE "${CMAKE_CURRENT_LIST_DIR}/java/libs" CACHE PATH "Selected Java library source directory")
 
 macro(COPY_JARS S_DIR T_DIR NEW_DIR)
     add_custom_command(
             OUTPUT "${JAR_DEST_DIR}/${T_DIR}"
             COMMAND ${CMAKE_COMMAND}
-            -Dsrc_dir=${CMAKE_CURRENT_LIST_DIR}/java/${S_DIR}
+            -Dsrc_dir=${S_DIR}
             -Ddst_dir=${JAR_DEST_DIR}/${T_DIR}
             -P ${CMAKE_CURRENT_LIST_DIR}/cmake/copy_jars.cmake
             COMMENT "Copying '${S_DIR}' to '${T_DIR}'"
@@ -208,8 +242,8 @@ macro(COPY_JARS S_DIR T_DIR NEW_DIR)
     set(${NEW_DIR} "${JAR_DEST_DIR}/${T_DIR}")
 endmacro()
 
-copy_jars(agents ${AGENTS_DEST_DIR} COPIED_AGENTS)
-copy_jars(libs ${LIBS_DEST_DIR} COPIED_LIBRARIES)
+copy_jars("${ATW_JAVA_AGENTS_SOURCE}" ${AGENTS_DEST_DIR} COPIED_AGENTS)
+copy_jars("${ATW_JAVA_LIBS_SOURCE}" ${LIBS_DEST_DIR} COPIED_LIBRARIES)
 
 add_custom_target(CopyJars ALL DEPENDS ${COPIED_AGENTS} ${COPIED_LIBRARIES})
 foreach(ATW_TARGET IN LISTS ATW_TARGETS)
@@ -218,7 +252,8 @@ endforeach()
 
 # ------------------------- Copy bundled Weave mods -----------------------
 
-set(BUNDLED_WEAVE_MODS_SOURCE ${CMAKE_CURRENT_LIST_DIR}/weave-mods/runtime)
+set(ATW_WEAVE_MODS_SOURCE "${CMAKE_CURRENT_LIST_DIR}/weave-mods/runtime" CACHE PATH "Explicitly selected Weave mod payloads")
+set(BUNDLED_WEAVE_MODS_SOURCE "${ATW_WEAVE_MODS_SOURCE}")
 set(BUNDLED_WEAVE_MODS_DEST ${CMAKE_BINARY_DIR}/data/home/.weave/mods)
 # Port builds are explicit: install verified outputs before configuring CMake.
 # This avoids silently rebuilding an obsolete 0.2.6 artifact during launcher builds.
@@ -228,7 +263,7 @@ add_custom_target(CopyBundledWeaveMods ALL
     COMMENT "Copying verified Minecraft 1.8.9 Weave 1.4.1 mods"
     VERBATIM
 )
-set(ATW_WEAVE_RUNTIME_SOURCE "${CMAKE_CURRENT_LIST_DIR}/runtime/weave")
+set(ATW_WEAVE_RUNTIME_SOURCE "${CMAKE_CURRENT_LIST_DIR}/runtime/weave" CACHE PATH "Pinned Weave runtime and private API source")
 set(ATW_WEAVE_RUNTIME_DEST "${CMAKE_BINARY_DIR}/runtime/weave")
 foreach(WEAVE_FILE IN ITEMS
         "Weave-Loader-Agent-1.4.1.jar" "vanilla-1.8.9.jar"
@@ -252,7 +287,7 @@ endforeach()
 
 # ------------------------- Copy bundled Java runtime -----------------------
 
-set(BUNDLED_JAVA_RUNTIME_SOURCE ${CMAKE_CURRENT_LIST_DIR}/runtime/java)
+set(BUNDLED_JAVA_RUNTIME_SOURCE "${ATW_JAVA_RUNTIME_SOURCE}")
 set(BUNDLED_JAVA_RUNTIME_DEST ${CMAKE_BINARY_DIR}/runtime/java)
 
 add_custom_target(CopyBundledJavaRuntime ALL
@@ -268,7 +303,7 @@ endforeach()
 
 # ------------------------- Copy bundled Lunar Client data -----------------
 
-set(BUNDLED_LUNAR_DATA_SOURCE ${CMAKE_CURRENT_LIST_DIR}/data/lunarclient)
+set(BUNDLED_LUNAR_DATA_SOURCE "${ATW_LUNAR_DATA_SOURCE}")
 set(BUNDLED_LUNAR_DATA_DEST ${CMAKE_BINARY_DIR}/data/home/.lunarclient)
 set(ATW_LUNAR_BRANDING_OVERLAY ${CMAKE_CURRENT_LIST_DIR}/res/lunar-overrides)
 set(ATW_LUNAR_BRANDING_TARGET_JAR ${BUNDLED_LUNAR_DATA_DEST}/offline/multiver/lunar.jar)
@@ -306,6 +341,24 @@ if(EXISTS "${BUNDLED_LUNAR_DATA_SOURCE}")
     add_dependencies(atw-launch CopyBundledLunarData)
 endif()
 
+# Deploy both app bundles; they share data/runtime, but each needs Qt frameworks
+# and the Cocoa platform plugin inside its own bundle. Signing/notarization is a
+# separate distribution step and is not asserted by deployment.
+if(APPLE)
+    get_target_property(ATW_QMAKE_EXECUTABLE ${QT_VER}::qmake IMPORTED_LOCATION)
+    get_filename_component(ATW_QT_BIN_DIR "${ATW_QMAKE_EXECUTABLE}" DIRECTORY)
+    find_program(ATW_MACDEPLOYQT_EXECUTABLE macdeployqt HINTS "${ATW_QT_BIN_DIR}" NO_DEFAULT_PATH)
+    if(NOT ATW_MACDEPLOYQT_EXECUTABLE)
+        message(FATAL_ERROR "macdeployqt from the selected Qt installation is required")
+    endif()
+    foreach(ATW_TARGET IN LISTS ATW_TARGETS)
+        add_custom_command(TARGET ${ATW_TARGET} POST_BUILD
+            COMMAND "${ATW_MACDEPLOYQT_EXECUTABLE}" "$<TARGET_BUNDLE_DIR:${ATW_TARGET}>" -always-overwrite
+            COMMENT "Deploying Qt frameworks and Cocoa plugin for ${ATW_TARGET}"
+            VERBATIM)
+    endforeach()
+endif()
+
 # ----------------------- Copy application icon ------------------------------
 
 configure_file(${CMAKE_SOURCE_DIR}/res/icon.ico ${CMAKE_BINARY_DIR}/icon.ico COPYONLY)
@@ -328,7 +381,7 @@ endif()
 list(TRANSFORM QT_COMPONENTS PREPEND ${QT_VER}:: OUTPUT_VARIABLE QT_LIBS)
 
 foreach(ATW_TARGET IN LISTS ATW_TARGETS)
-    target_link_libraries(${ATW_TARGET} atw_core ${QT_LIBS})
+    target_link_libraries(${ATW_TARGET} atw_core ${QT_LIBS} ZLIB::ZLIB)
 endforeach()
 
 # ---------------------- Set include directory ---------------------------
@@ -354,5 +407,37 @@ elseif(WIN32 AND QT_VER STREQUAL "Qt5")
             COMMAND "${QT_BIN_DIR}/windeployqt.exe" --no-translations "$<TARGET_FILE:${ATW_TARGET}>"
             COMMENT "Deploying Qt DLLs for ${ATW_TARGET} with windeployqt..."
         )
+    endforeach()
+endif()
+
+if(WIN32)
+    # windeployqt does not deploy independently linked zlib. Inspect the actual
+    # executable imports after Qt deployment, so both static and shared zlib
+    # builds work without relying on zlib being installed on the destination PC.
+    set(ATW_RUNTIME_DEPENDENCY_DIRS "" CACHE STRING "Additional Windows DLL search directories (semicolon-separated)")
+    if(MSVC)
+        get_filename_component(ATW_LINKER_DIR "${CMAKE_LINKER}" DIRECTORY)
+        find_program(ATW_DEPENDENCY_READER dumpbin HINTS "${ATW_LINKER_DIR}" REQUIRED)
+        set(ATW_DEPENDENCY_TOOL dumpbin)
+    else()
+        set(ATW_DEPENDENCY_READER "${CMAKE_OBJDUMP}")
+        set(ATW_DEPENDENCY_TOOL objdump)
+        if(NOT EXISTS "${ATW_DEPENDENCY_READER}")
+            message(FATAL_ERROR "A matching objdump is required for Windows runtime deployment")
+        endif()
+    endif()
+    foreach(ATW_TARGET IN LISTS ATW_TARGETS)
+        add_custom_command(TARGET ${ATW_TARGET} POST_BUILD
+            COMMAND "${CMAKE_COMMAND}"
+                "-DATW_EXECUTABLE=$<TARGET_FILE:${ATW_TARGET}>"
+                "-DATW_ZLIB_DIR=$<TARGET_FILE_DIR:ZLIB::ZLIB>"
+                "-DATW_QT_DIR=$<TARGET_FILE_DIR:${QT_VER}::Core>"
+                "-DATW_EXTRA_DIRS=${ATW_RUNTIME_DEPENDENCY_DIRS}"
+                "-DCMAKE_GET_RUNTIME_DEPENDENCIES_PLATFORM=windows+pe"
+                "-DCMAKE_GET_RUNTIME_DEPENDENCIES_TOOL=${ATW_DEPENDENCY_TOOL}"
+                "-DCMAKE_GET_RUNTIME_DEPENDENCIES_COMMAND=${ATW_DEPENDENCY_READER}"
+                -P "${CMAKE_CURRENT_LIST_DIR}/cmake/deploy_windows_runtime.cmake"
+            COMMENT "Deploying imported Windows runtime DLLs for ${ATW_TARGET}"
+            VERBATIM)
     endforeach()
 endif()
