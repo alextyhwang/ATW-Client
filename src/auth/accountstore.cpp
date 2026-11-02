@@ -27,6 +27,11 @@
 #include <wincrypt.h>
 #endif
 
+#ifdef Q_OS_MACOS
+#include <CoreFoundation/CoreFoundation.h>
+#include <Security/Security.h>
+#endif
+
 namespace {
 const int accountFileVersion = 1;
 const char entropy[] = "ATW Client Microsoft account v1";
@@ -50,11 +55,26 @@ bool writeJsonFile(const QString& path, const QJsonObject& object, QString* erro
     }
     return true;
 }
+
+#ifdef Q_OS_MACOS
+constexpr char keychainMarker[] = "keychain-v1";
+
+void clearKeychainSecret() {
+    const CFMutableDictionaryRef query = CFDictionaryCreateMutable(
+        kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks,
+        &kCFTypeDictionaryValueCallBacks);
+    CFDictionarySetValue(query, kSecClass, kSecClassGenericPassword);
+    CFDictionarySetValue(query, kSecAttrService, CFSTR("com.alextyhwang.atw-client.account.v1"));
+    CFDictionarySetValue(query, kSecAttrAccount, CFSTR("microsoft-refresh-token"));
+    SecItemDelete(query);
+    CFRelease(query);
+}
+#endif
 }
 
 QString AccountStore::accountFilePath() {
 #if defined(ATW_PACKAGE_MODE) || defined(ATW_TEST_PORTABLE)
-    return FS::combinePaths(QCoreApplication::applicationDirPath(), QStringLiteral("config"), QStringLiteral("account.dat"));
+    return FS::combinePaths(FS::getPackageRoot(), QStringLiteral("config"), QStringLiteral("account.dat"));
 #else
     return QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation) + QStringLiteral("/atw-client/account.dat");
 #endif
@@ -95,7 +115,7 @@ bool AccountStore::save(const SavedAccount& saved, QString* error) {
     const QByteArray encrypted = protect(QJsonDocument(secret).toJson(QJsonDocument::Compact));
     if (encrypted.isEmpty()) {
         if (error)
-            *error = QStringLiteral("Windows could not encrypt the sign-in for this user.");
+            *error = QStringLiteral("The operating system could not protect the sign-in for this user.");
         return false;
     }
 
@@ -146,6 +166,9 @@ QJsonObject AccountStore::lunarAccountEntry(const SavedAccount& saved) {
 }
 
 void AccountStore::signOut() {
+#ifdef Q_OS_MACOS
+    clearKeychainSecret();
+#endif
     QFile::remove(accountFilePath());
 
     const QString path = FS::getLunarAccountsPath();
@@ -209,8 +232,50 @@ QByteArray AccountStore::unprotect(const QByteArray& encrypted) {
     LocalFree(output.pbData);
     return result;
 }
+#elif defined(Q_OS_MACOS)
+QByteArray AccountStore::protect(const QByteArray& plain) {
+    if (plain.isEmpty())
+        return {};
+    clearKeychainSecret();
+    const CFDataRef value = CFDataCreate(kCFAllocatorDefault,
+        reinterpret_cast<const UInt8*>(plain.constData()), plain.size());
+    const CFMutableDictionaryRef item = CFDictionaryCreateMutable(
+        kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks,
+        &kCFTypeDictionaryValueCallBacks);
+    CFDictionarySetValue(item, kSecClass, kSecClassGenericPassword);
+    CFDictionarySetValue(item, kSecAttrService, CFSTR("com.alextyhwang.atw-client.account.v1"));
+    CFDictionarySetValue(item, kSecAttrAccount, CFSTR("microsoft-refresh-token"));
+    CFDictionarySetValue(item, kSecAttrAccessible, kSecAttrAccessibleWhenUnlocked);
+    CFDictionarySetValue(item, kSecValueData, value);
+    const OSStatus status = SecItemAdd(item, nullptr);
+    CFRelease(item);
+    CFRelease(value);
+    return status == errSecSuccess ? QByteArray(keychainMarker) : QByteArray();
+}
+
+QByteArray AccountStore::unprotect(const QByteArray& encrypted) {
+    if (encrypted != QByteArray(keychainMarker))
+        return {};
+    const CFMutableDictionaryRef query = CFDictionaryCreateMutable(
+        kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks,
+        &kCFTypeDictionaryValueCallBacks);
+    CFDictionarySetValue(query, kSecClass, kSecClassGenericPassword);
+    CFDictionarySetValue(query, kSecAttrService, CFSTR("com.alextyhwang.atw-client.account.v1"));
+    CFDictionarySetValue(query, kSecAttrAccount, CFSTR("microsoft-refresh-token"));
+    CFDictionarySetValue(query, kSecReturnData, kCFBooleanTrue);
+    CFTypeRef result = nullptr;
+    const OSStatus status = SecItemCopyMatching(query, &result);
+    CFRelease(query);
+    if (status != errSecSuccess || !result)
+        return {};
+    const CFDataRef value = static_cast<CFDataRef>(result);
+    const QByteArray result(reinterpret_cast<const char*>(CFDataGetBytePtr(value)),
+        int(CFDataGetLength(value)));
+    CFRelease(value);
+    return result;
+}
 #else
-// No OS-backed secret store is wired up outside Windows, so nothing is saved.
+// No OS-backed secret store is wired up outside Windows or macOS.
 QByteArray AccountStore::protect(const QByteArray&) { return {}; }
 QByteArray AccountStore::unprotect(const QByteArray&) { return {}; }
 #endif

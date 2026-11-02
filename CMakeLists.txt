@@ -402,6 +402,13 @@ foreach(ATW_TARGET IN LISTS ATW_TARGETS)
     target_link_libraries(${ATW_TARGET} atw_core ${QT_LIBS} ZLIB::ZLIB)
 endforeach()
 
+if(APPLE)
+    find_library(ATW_SECURITY_FRAMEWORK Security REQUIRED)
+    foreach(ATW_TARGET IN LISTS ATW_TARGETS)
+        target_link_libraries(${ATW_TARGET} "${ATW_SECURITY_FRAMEWORK}")
+    endforeach()
+endif()
+
 # ---------------------- Set include directory ---------------------------
 
 foreach(ATW_TARGET IN LISTS ATW_TARGETS)

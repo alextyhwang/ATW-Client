@@ -117,8 +117,10 @@ Diagnostic launch options:
 - `--online-readiness` produces the redacted account/session report described above.
 
 `atw-launch` signs in with Microsoft's device-code flow, then Xbox Live, XSTS and
-Minecraft services. The refresh token is stored only in `config/account.dat`,
-encrypted with Windows DPAPI for the current user. Before each launch the
+Minecraft services. The refresh token is stored only in `config/account.dat`:
+Windows protects it with DPAPI, while the Mac branch stores the secret in the
+current user's macOS Keychain and leaves only a non-secret marker in that file.
+Before each launch the
 launcher refreshes the Minecraft token if it expires within 10 minutes and
 writes it to Lunar's `accounts.json`. That entry has no `refreshToken` key at
 all: at startup Lunar refreshes every account whose refresh token is not null,

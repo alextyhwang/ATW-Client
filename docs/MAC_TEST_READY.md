@@ -56,7 +56,10 @@ repeat with new work/output names and `--build`. The build excludes test suites
 and does not open the game. Fresh Gradle dependency downloads may be required.
 Inspect `PREPARATION-STATUS.json` and private logs in the work directory.
 
-Authentication is local to the eventual package. If needed, explicitly add
+Authentication is local to the eventual package. On macOS, the refresh secret
+is stored in the signed-in user's Keychain; `config/account.dat` contains only
+account metadata and a keychain marker. Copying the package to another Mac
+requires signing in again. If needed, explicitly add
 `--account-snapshot /actual/private/accounts.json` on your Mac; no account is
 discovered or imported automatically. Keep that resulting package private.
 
