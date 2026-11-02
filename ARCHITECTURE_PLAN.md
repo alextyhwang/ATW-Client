@@ -1,5 +1,9 @@
 # ATW Client Architecture Workspace Plan
 
+> Historical proposal, superseded by the current [architecture status](ARCHITECTURE_TODO.md).
+> Old workspace paths, Weave 0.2.6 references and public-package plans below
+> describe the pre-migration design, not current instructions.
+
 ## Summary
 
 This folder is the experimental future workspace for ATW Client:

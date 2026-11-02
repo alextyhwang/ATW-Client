@@ -6,7 +6,7 @@ no administrator rights are needed.
 ## Using it on a Windows PC
 
 1. Download the latest `ATW-Portable-*.zip` from the private releases at
-   https://github.com/alextyhwang/ATW-Client-Portable/releases (sign in to GitHub first).
+   https://github.com/alextyhwang/ATW-Client-Portable/releases (sign in to a GitHub account with access to that private repository).
 2. Right-click the zip, choose **Extract All**, and extract it into a folder you
    own, such as Desktop, Documents or Downloads. Not Program Files.
 3. Open the extracted folder and double-click **Start ATW.cmd**. If Windows shows
@@ -16,6 +16,10 @@ no administrator rights are needed.
 4. Sign in with Microsoft: enter the code shown at microsoft.com/link with the
    account that owns Minecraft. The game then starts. Later launches reuse the
    saved sign-in.
+
+A relocated Java binary may trigger Windows Firewall's network-access prompt.
+The local multiplayer test passed after cancelling it; no firewall rule change
+was needed for that test. See [current coverage](../PORTABILITY_TODO.md).
 
 Quit with Lunar's in-game close button. Open `atw-config.exe` to change settings.
 
@@ -104,6 +108,14 @@ The old `create_atw_test_bundle.ps1` is for legacy development builds only.
 
 ## Microsoft sign-in
 
+Diagnostic launch options:
+
+- `--offline` skips sign-in and starts the game offline.
+- `--auth-selftest` checks the live authentication endpoints without signing in.
+- `--account-store-selftest` checks account storage. Run it only in an empty
+  scratch copy of the package, never in a signed-in installation.
+- `--online-readiness` produces the redacted account/session report described above.
+
 `atw-launch` signs in with Microsoft's device-code flow, then Xbox Live, XSTS and
 Minecraft services. The refresh token is stored only in `config/account.dat`,
 encrypted with Windows DPAPI for the current user. Before each launch the
@@ -134,5 +146,7 @@ For a source build, run `scripts/fetch_weave_runtime.ps1` before configuring
 CMake. It verifies pinned hashes and produces the agent, vanilla Minecraft
 1.8.9 jar and API Maven repository under `runtime/weave`; CMake copies the API
 into the package's private home. Vanilla download metadata comes from Mojang's
-official version manifest. Build the six canonical mods with PowerShell 7 and
-`scripts/build_mods.ps1 -Install`. These commands require no staged port sources.
+official version manifest. Build canonical mods with PowerShell 7 and `scripts/build_mods.ps1`.
+Install only qualified module outputs with `-Modules <name> -Install`; see
+[deployment contracts](../MODS.md), especially the retained LevelHead baseline.
+These commands require no staged port sources.

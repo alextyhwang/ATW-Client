@@ -1,7 +1,7 @@
 # ATW LevelHead
 
 Standalone Weave mod for the ATW launcher stack. It targets Lunar Client
-Minecraft 1.8.9 with the bundled old Weave Loader v0.2.6.
+Minecraft 1.8.9 with Weave Loader 1.4.1 and Java 17.
 
 The mod can show Hypixel network level or BedWars star/FKDR above player heads.
 By default, BedWars mode is contextual: active BedWars games show BedWars stats
@@ -28,13 +28,7 @@ player's star and FKDR.
 ## Requirements
 
 - Minecraft/Lunar Client 1.8.9.
-- Weave Loader v0.2.6 from this repo:
-
-```text
-../../java/agents/WeaveLoader.jar
-```
-
-- Java 8-compatible bytecode. The Gradle build uses `options.release = 8`.
+- Weave Loader/API/Gradle 1.4.1 and a Java 17 JDK.
 - Gson and Minecraft classes from the client runtime.
 - BedWars mode needs a Hypixel developer API key supplied by the user. Public
   release jars do not include an API key. Add one in game with
@@ -42,16 +36,14 @@ player's star and FKDR.
   `ATW_LEVELHEAD_HYPIXEL_API_KEY` environment variable or
   `-Datw.levelhead.hypixelApiKey=...` JVM system property.
 
-Do not upgrade Weave or move this to newer Weave APIs unless you are also
-testing the full old Lunar/Weave stack. The command and hook behavior is very
-version-specific.
+Keep the pinned Lunar/Weave stack aligned; command and hook behavior is version-specific.
 
 ## Config
 
 Runtime settings are saved to:
 
 ```text
-%USERPROFILE%\.weave\atw-levelhead.json
+<package>/data/home/.weave/atw-levelhead.json
 ```
 
 Current keys:
@@ -64,7 +56,7 @@ Current keys:
 Disk cache is saved to:
 
 ```text
-%USERPROFILE%\.weave\atw-levelhead-cache.json
+<package>/data/home/.weave/atw-levelhead-cache.json
 ```
 
 Cache behavior:
@@ -74,29 +66,19 @@ Cache behavior:
 
 Use `/atwlh clearcache` to clear both in-memory and disk caches.
 
-## Build
+## Build and install
 
-From this folder:
-
-```powershell
-.\gradlew.bat build
-```
-
-The jar is written to:
-
-```text
-build/libs/ATWLevelHead-0.1.0.jar
-```
-
-## Install
-
-Copy the built jar to Weave's mods folder:
+From the repository root in PowerShell 7:
 
 ```powershell
-Copy-Item .\build\libs\ATWLevelHead-0.1.0.jar $env:USERPROFILE\.weave\mods\ATWLevelHead-0.1.0.jar -Force
+./scripts/build_mods.ps1 -Modules atw-levelhead
 ```
 
-Then restart Lunar 1.8.9 with Weave enabled.
+Artifact: `build/libs/ATWLevelHead-0.1.0-atw-weave1.4.1.jar` beneath this module.
+The label-cache candidate is present in source, but the installed baseline was
+retained pending Hypixel coverage. Read
+[qualification](../../docs/MULTIPLAYER_QUALIFICATION.md) before using `-Install`;
+that switch updates both package mod stores. Restart Minecraft after installation.
 
 BedWars FKDR/star lookups require your own Hypixel developer API key:
 

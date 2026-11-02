@@ -239,6 +239,9 @@ build/
 # ATW local payload/account data
 accounts.json
 **/accounts.json
+account.dat
+launcher_accounts.json
+launcher_lc_msa.json
 *.log
 .env
 .env.*

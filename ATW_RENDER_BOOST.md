@@ -1,16 +1,45 @@
-# ATW Render Boost
+# ATW performance status
 
-- Independent Performance copy; original preserved. Minecraft 1.8.9, Weave 1.4.1, existing mods retained.
-- New Weave mod caches repeated name/hover-data parsing. Enabled by default; fresh objects and original-parser fallback preserve behavior.
-- Moving Bedwars Practice tests: **473 → 532 FPS (+12.6%)**, windowed 2560×1421, unchanged graphics. Crowds varied; Hypixel remains unverified.
-- Scoped NVIDIA VSync override fixed the abnormal testing environment separately from the mod gain.
-- Latest render build: 238 private / 173 public tests passed. Terrain, glyph and error-poll optimizations remain OFF.
-- Reverse name-encoding experiment implemented and installed, default OFF. Live admission passed; the initial paired lobby pilot was inconclusive (+1.4% pooled, pairs −7.0% / +10.0%). No additional FPS gain is established. See [pilot results](docs/NAME_ENCODING_PILOT.md).
-- Controlled local reverse-encoding screen: +0.616%, below the predeclared 3% threshold; retained OFF. See [local results](docs/NAME_ENCODING_LOCAL_SCREEN.md).
-- Forward-hover serialization cache implemented, reviewed, tested and installed. Live 5/5 admission and completed hits passed; its +0.237% local screen was below control drift and the 3% threshold. Retained OFF; broader qualification stopped conservatively. See [results](docs/FORWARD_HOVER_LOCAL_SCREEN.md).
-- Existing OptiFine Render Regions accepted ON for this machine. Two fully warmed terrain blocks with Default textures: **626 → 1,017 FPS (+62.5%)**, p99 **3.05 → 2.01 ms**. A variable-crowd Bedwars Practice block observed about **+25%**. These are separate comparisons from the earlier name-cache gain, not additive or universal. See [qualification and limits](docs/RENDER_REGIONS_QUALIFICATION.md).
-- Profiles support using existing batching and deferring a new renderer or rebuild/upload scheduler. Visibility/list work is the remaining investigation lead; no Vulkan port was implemented.
-- Multiplayer follow-up: atomic RawInput delta handoff and faster minimap UUID bookkeeping are reviewed, tested and installed in their respective mods. LevelHead label caching is implemented but not promoted; its original jar is restored pending Hypixel coverage. The batch has 66 passing tests; no additional FPS, ping or physical input-latency gain is established. See [qualification and retained artifacts](docs/MULTIPLAYER_QUALIFICATION.md).
-- PvP follow-up: RawInput vanilla fallback and conservative device-epoch recovery are now reviewed and installed; 43 canonical / 12 independent / 2 baseline comparison tests passed, followed by restarted automated look/menu/rescan/reconnect and structural admission checks. Visuals/settings and other mod jars are preserved. Patcher/other-mod research, three profiles, four frame windows, and private trajectory/event-bus screens are complete; physical raw input and controlled combat remain deferred. No new causal FPS, ping or hit-registration gain is established. See [results and candidate disposition](docs/PVP_RESULTS.md).
-- Switchable bottleneck experiments are reviewed and installed, all default OFF: immutable team/name preparation in Render Boost, synchronous event dispatch in the optional ATW Dispatch Experiment mod, and derived projectile hitbox reuse in Overlay. Nameprep's exact Lunar/Weave bridge admission fix passed 254 canonical and 49 independent tests; live ON produced active hits without guard rejects/failures and OFF resumed the original path. Dispatch ON/OFF/reset/reconnect worked; active bow/pearl trajectory coverage remains pending. All visuals/features are retained. No additional FPS, ping or hit-registration gain is established. See [delivery tasks](docs/PVP_EXPERIMENT_TASKS.md) and [testing controls](docs/PVP_EXPERIMENT_TESTING.md).
-- Both installed Render Boost jars: SHA-256 `bea54349ccfa84bbdcff282788835fd17f16b621e933d34f3a70d3b857c3c975`. Earlier render outcomes remain tracked in [execution tasks](docs/RENDER_EXECUTION_TASKS.md).
+Current as of 2026-11-02 for the independent Performance checkout.
+Runtime: Lunar Minecraft 1.8.9, Java 17, Weave 1.4.1. This summary records
+deployment and evidence; it is not an instruction to enable experiments.
+
+## Retained behavior
+
+- Guarded name parse cache: installed, independently ON by default. Moving
+  Bedwars Practice tests observed 473 to 532 FPS (+12.6%) at windowed 2560x1421;
+  crowds varied. [Evidence and limits](docs/NAME_PARSE_PERFORMANCE.md).
+- OptiFine Render Regions: retained ON for the tested main profile. Two warmed
+  terrain blocks observed 626 to 1,017 FPS (+62.5%), with p99 3.05 to 2.01 ms.
+  This is a separate comparison, not additive to the name-cache gain or universal.
+  [Qualification](docs/RENDER_REGIONS_QUALIFICATION.md).
+- RawInput atomic handoff/vanilla fallback/epoch recovery and minimap UUID
+  bookkeeping: installed and tested; no additional FPS, ping or physical
+  input-latency gain established. [Multiplayer](docs/MULTIPLAYER_QUALIFICATION.md)
+  and [PvP qualification](docs/PVP_RESULTS.md).
+- LevelHead label caching: source exists, but the original runtime jar is
+  retained pending Hypixel coverage. A rebuild is not approval to install it.
+
+## Experiments remain OFF
+
+Terrain VAO, glyph geometry, GL error polling, reverse encoding, forward hover,
+name preparation, synchronous dispatch and trajectory preparation are optional
+experiments. Local screens did not establish additional gains. Nameprep and
+dispatch passed limited live admission; active bow/pearl trajectory coverage
+remains pending. Use [testing controls](docs/PVP_EXPERIMENT_TESTING.md) and the
+linked reports before touching these paths. No Vulkan renderer was implemented.
+
+## Latest package checks
+
+Microsoft sign-in, Lunar account retention and Bedwars Practice joins passed
+on BLACKBOX with both normal and fresh Minecraft settings. Hypixel still
+disconnects there despite successful status/account checks; it joined on
+Alayna's PC on the same network. Different-network coverage remains open.
+The fresh-settings FPS sample was VSync-capped, not an optimization comparison.
+See [2026-11-02 test](docs/PORTABLE_SMOKE_TEST_20261102.md) and
+[portability status](PORTABILITY_TODO.md).
+
+Installed Render Boost SHA-256 at that test:
+`bea54349ccfa84bbdcff282788835fd17f16b621e933d34f3a70d3b857c3c975`.
+Recheck actual jar hashes after any install; historical counts/hashes live in
+the linked qualification reports.

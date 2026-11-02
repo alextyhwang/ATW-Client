@@ -1,9 +1,10 @@
 # ATW Native Core
 
-This directory marks the future home of the native ATW core.
+The native core is shared through CMake's `atw_core` interface target; sources remain in their feature directories.
 
 For the first migration pass, the core boundary is represented in CMake by the `atw_core` interface target. It currently owns existing source files from:
 
+- `src/auth`
 - `src/config`
 - `src/launch`
 - `src/util`
