@@ -12,7 +12,7 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
-option(INCLUDE_UPDATER "Include update checker" OFF)
+option(INCLUDE_UPDATER "Include update checker" ON)
 option(ATW_BUILD_LEGACY_TARGETS "Build legacy atw-client and atw-test-exe targets" OFF)
 
 # Never consume copied Windows payloads as Mac artifacts. Use a fresh build
