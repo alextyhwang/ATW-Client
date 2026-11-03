@@ -28,6 +28,7 @@ PINNED = (
     "data/home/.weave/.maven-repository/net/weavemc/api/api-v1_8/1.4.1/api-v1_8-1.4.1.jar",
 )
 MODS = "data/home/.weave/mods"
+MAC_VANILLA_LOOKUP = "data/home/Library/Application Support/minecraft/versions/1.8.9/1.8.9.jar"
 CORE_MODS = (
     "ATWLevelHead-0.1.0-atw-weave1.4.1.jar", "ATWRebrand-0.1.0-atw-weave1.4.1.jar",
     "RawInput-1.0.1-atw-weave1.4.1.jar", "WeaveNoHitDelay-2.0-atw-weave1.4.1.jar",
@@ -38,6 +39,21 @@ CORE_MODS = (
 def require(condition, message):
     if not condition:
         raise ValueError(message)
+
+
+def stage_weave_vanilla_lookup(package):
+    """Keep Weave's macOS default vanilla lookup inside the private home.
+
+    Weave 1.4.1 evaluates its platform default before honoring the explicit
+    ``weave.vanilla.jar.path`` override. The lookup must therefore exist even
+    though the launcher also supplies the canonical runtime path.
+    """
+    source = checked_input(package, "runtime/weave/vanilla-1.8.9.jar")
+    destination = package / MAC_VANILLA_LOOKUP
+    require(not destination.exists() and not destination.is_symlink(),
+            "Mac vanilla lookup must be staged into a new package")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, destination)
 
 
 def contained(path, root):
@@ -224,6 +240,7 @@ def main():
     for relative in extras:
         (output / relative).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source / relative, output / relative)
+    stage_weave_vanilla_lookup(output)
     settings.update(version="1.8.9", useWeave=True, weaveOffline=True,
                     useCustomJre=True, customJrePath="runtime/java/bin/java",
                     useCustomMinecraftDir=True, customMinecraftDir=GAME)
