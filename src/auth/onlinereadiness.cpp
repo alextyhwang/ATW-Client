@@ -65,16 +65,19 @@ int runOnlineReadiness() {
 
     // 1-2. Saved sign-in.
     AccountStore::SavedAccount saved;
-    switch (AccountStore::load(saved)) {
+    QString storageError;
+    switch (AccountStore::load(saved, &storageError)) {
     case AccountStore::LoadStatus::Missing:
         report("FAIL", QStringLiteral("account.dat: missing. Start ATW and sign in with Microsoft."));
         return 1;
     case AccountStore::LoadStatus::Unreadable:
-        report("FAIL", QStringLiteral("account.dat: cannot be decrypted by this Windows user (copied from another PC "
-                                      "or user, or damaged). The next start removes it and asks for a sign-in."));
+        report("FAIL", QStringLiteral("account.dat: cannot be read on this computer. Saved account files were preserved."));
+        return 1;
+    case AccountStore::LoadStatus::Unavailable:
+        report("FAIL", QStringLiteral("account.dat: operating-system secret store is unavailable; saved account files were preserved. ") + storageError);
         return 1;
     case AccountStore::LoadStatus::Ok:
-        report("PASS", QStringLiteral("account.dat: decrypted with Windows DPAPI for %1.").arg(saved.account.name));
+        report("PASS", QStringLiteral("account.dat: read from the operating-system secret store for %1.").arg(saved.account.name));
         break;
     }
     const qint64 minutesLeft = QDateTime::currentDateTimeUtc().secsTo(saved.account.expiresAt) / 60;

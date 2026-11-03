@@ -25,6 +25,7 @@ QString packageRoot;
 QStringList packageRoots;
 QMap<QString, QByteArray> secrets;
 bool failAdd = false;
+OSStatus readFailure = errSecSuccess;
 bool deletedReferencedItem = false;
 int queryCount = 0;
 
@@ -73,6 +74,8 @@ OSStatus mockSecItemAdd(CFDictionaryRef item, CFTypeRef*) {
 
 OSStatus mockSecItemCopyMatching(CFDictionaryRef query, CFTypeRef* result) {
     ++queryCount;
+    if (readFailure != errSecSuccess)
+        return readFailure;
     const auto item = secrets.constFind(identity(query));
     if (item == secrets.cend()) return errSecItemNotFound;
     *result = CFDataCreate(kCFAllocatorDefault, reinterpret_cast<const UInt8*>(item->constData()), item->size());
@@ -97,7 +100,7 @@ int main(int argc, char** argv) {
     QTemporaryDir scratch(QDir(QString::fromLocal8Bit(argv[1])).filePath(QStringLiteral("accountstore-isolation-XXXXXX")));
     CHECK(scratch.isValid(), "scratch creation");
     for (const QString& name : {QStringLiteral("a"), QStringLiteral("b"), QStringLiteral("failure"), QStringLiteral("legacy")}) {
-        const QString root = QDir(scratch.path()).filePath(name);
+        const QString root = QDir(QFileInfo(scratch.path()).canonicalFilePath()).filePath(name);
         CHECK(QDir().mkpath(root), "package creation");
         packageRoots.append(root);
     }
@@ -125,6 +128,32 @@ int main(int argc, char** argv) {
     CHECK(AccountStore::load(loaded) == AccountStore::LoadStatus::Ok
         && loaded.account.refreshToken == saved.account.refreshToken, "first package reload");
 
+    // A locked Keychain or a noninteractive session is not a foreign/corrupt
+    // account. Preserve both disk files and the referenced secret so retrying
+    // in the user's unlocked desktop recovers the original sign-in.
+    const QJsonObject accountBeforeReadFailure = readJsonFile(AccountStore::accountFilePath());
+    const QJsonObject lunarBeforeReadFailure = readJsonFile(FS::getLunarAccountsPath());
+    QString readError;
+    for (const OSStatus status : {errSecInteractionNotAllowed, errSecAuthFailed, errSecNotAvailable}) {
+        readFailure = status;
+        const int queriesBeforeMetadata = queryCount;
+        QString metadataName;
+        CHECK(AccountStore::savedAccountMetadata(&metadataName) && metadataName == saved.account.name
+            && queryCount == queriesBeforeMetadata, "config metadata reads never access Keychain even when it is unavailable");
+        CHECK(AccountStore::load(loaded, &readError) == AccountStore::LoadStatus::Unavailable
+            && loaded.account.refreshToken.isEmpty() && !readError.isEmpty(), "unavailable Keychain is retryable and clears stale output");
+        CHECK(readJsonFile(AccountStore::accountFilePath()) == accountBeforeReadFailure
+            && readJsonFile(FS::getLunarAccountsPath()) == lunarBeforeReadFailure
+            && secrets.contains(markerIdentity(first)), "unavailable read preserves account files and secret");
+    }
+    readFailure = errSecItemNotFound;
+    CHECK(AccountStore::load(loaded, &readError) == AccountStore::LoadStatus::Unreadable
+        && readJsonFile(AccountStore::accountFilePath()) == accountBeforeReadFailure
+        && secrets.contains(markerIdentity(first)), "missing Keychain item allows replacement without deleting saved state");
+    readFailure = errSecSuccess;
+    CHECK(AccountStore::load(loaded, &readError) == AccountStore::LoadStatus::Ok
+        && loaded.account.refreshToken == saved.account.refreshToken && readError.isEmpty(), "Keychain recovery reuses the saved sign-in");
+
     packageRoot = packageRoots[1];
     CHECK(AccountStore::save(saved), "independent package save");
     const QByteArray second = markerAt(packageRoot);
@@ -136,10 +165,10 @@ int main(int argc, char** argv) {
     CHECK(replacement != first && !secrets.contains(markerIdentity(first))
         && secrets.contains(markerIdentity(second)), "retire only superseded item");
     const int beforeFailure = secrets.size();
+    QString error;
     const QString config = QDir(packageRoot).filePath(QStringLiteral("config"));
     const auto permissions = QFile::permissions(config);
     CHECK(QFile::setPermissions(config, QFile::ReadOwner | QFile::ExeOwner), "read-only fixture setup");
-    QString error;
     const bool savedReadOnly = AccountStore::save(saved, &error);
     CHECK(QFile::setPermissions(config, permissions), "read-only fixture restore");
     CHECK(!savedReadOnly && markerAt(packageRoot) == replacement
@@ -162,6 +191,11 @@ int main(int argc, char** argv) {
     const int beforeMalformed = queryCount;
     CHECK(AccountStore::unprotect("keychain-v2:../../invalid").isEmpty()
         && queryCount == beforeMalformed, "malformed reference rejected without Keychain query");
+    const QString metadataFixture = AccountStore::accountFilePath();
+    CHECK(writeJsonFile(metadataFixture, QJsonObject{{"version", 1}, {"localId", "fixture"}, {"name", "fixture"},
+        {"secret", QString::fromLatin1(QByteArray("keychain-v2:../../invalid").toBase64())}}, nullptr), "invalid metadata fixture setup");
+    CHECK(!AccountStore::savedAccountMetadata() && queryCount == beforeMalformed, "config metadata rejects malformed reference without Keychain access");
+    CHECK(QFile::remove(metadataFixture), "invalid metadata fixture cleanup");
     CHECK(AccountStore::unprotect("keychain-v1") == "legacy-fixture-only", "legacy read compatibility");
     packageRoot = packageRoots[3];
     AccountStore::signOut();

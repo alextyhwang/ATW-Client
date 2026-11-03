@@ -24,11 +24,17 @@ namespace AccountStore {
     enum class LoadStatus {
         Missing,
         Ok,
+        Unavailable, // OS secret store or account file cannot currently be read
         Unreadable  // copied from another PC or Windows user, or damaged
     };
 
     QString accountFilePath();
-    LoadStatus load(SavedAccount& saved);
+    LoadStatus load(SavedAccount& saved, QString* error = nullptr);
+#ifdef Q_OS_MACOS
+    // Non-secret display metadata only. Does not access Keychain or establish
+    // that the saved sign-in can be used; atw-launch owns authentication.
+    bool savedAccountMetadata(QString* name = nullptr);
+#endif
     // Writes account.dat, then the Minecraft token into accounts.json.
     bool save(const SavedAccount& saved, QString* error = nullptr);
     bool writeLunarAccount(const SavedAccount& saved, QString* error = nullptr);
@@ -44,8 +50,8 @@ namespace AccountStore {
     bool hasUsableLunarAccount(QString* name = nullptr);
     bool tokenIsFresh(const MinecraftAccount& account, int marginSeconds = 600);
 
-    QByteArray protect(const QByteArray& plain);
-    QByteArray unprotect(const QByteArray& encrypted);
+    QByteArray protect(const QByteArray& plain, QString* error = nullptr);
+    QByteArray unprotect(const QByteArray& encrypted, QString* error = nullptr, bool* unavailable = nullptr);
 
     // Appends to logs/launcher/main.log. Never pass token values.
     void log(const QString& message);

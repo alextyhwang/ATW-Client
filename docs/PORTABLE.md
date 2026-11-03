@@ -115,6 +115,11 @@ Diagnostic launch options:
 - `--account-store-selftest` checks account storage. Run it only in an empty
   scratch copy of the package, never in a signed-in installation.
 - `--online-readiness` produces the redacted account/session report described above.
+- `--sign-in` and `--sign-out` manage the account without starting Minecraft.
+- `--import-account <file>` consumes a one-time private JSON transfer containing
+  `clientId`, `uuid` and `refreshToken`, refreshes the session, checks its profile,
+  and saves it in the destination OS secret store. On Mac the input must be a
+  regular nonsymlink file with mode 0600. Never distribute or log this file.
 
 `atw-launch` signs in with Microsoft's device-code flow, then Xbox Live, XSTS and
 Minecraft services. The refresh token is stored only in `config/account.dat`:
@@ -127,6 +132,11 @@ only the item referenced by that package. Legacy `keychain-v1` references remain
 readable, but their shared Keychain item is never deleted automatically because
 another installation may still depend on it. Scratch storage tests therefore
 cannot overwrite or delete an existing installation's secret.
+Temporary Keychain failures preserve the saved account. On Mac, `atw-config`
+reads only nonsecret account metadata and delegates account actions to
+`atw-launch`, keeping Keychain access under one executable identity. Run live
+Mac sign-in checks through the desktop session: SSH can report Keychain error
+`-25308` even while the same launcher succeeds from the desktop.
 Before each launch the
 launcher refreshes the Minecraft token if it expires within 10 minutes and
 writes it to Lunar's `accounts.json`. That entry has no `refreshToken` key at

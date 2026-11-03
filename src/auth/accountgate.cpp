@@ -13,16 +13,34 @@ AccountGate::AccountGate(const QString& configuredClientId, QObject* parent)
     : QObject(parent), configuredClientId(configuredClientId) {}
 
 void AccountGate::start() {
-    switch (AccountStore::load(saved)) {
+    QString error;
+    switch (AccountStore::load(saved, &error)) {
     case AccountStore::LoadStatus::Ok:
         if (AccountStore::tokenIsFresh(saved.account))
             return useSaved();
         return refreshSaved();
     case AccountStore::LoadStatus::Unreadable:
-        AccountStore::log(QStringLiteral("Saved sign-in is from another PC or Windows user; removed it."));
-        AccountStore::signOut();
+        AccountStore::log(QStringLiteral("Saved sign-in could not be read; preserved it."));
+        if (AccountStore::hasUsableLunarAccount())
+            return emit ready(false);
         return askSignIn(QStringLiteral(
-            "The saved sign-in was made on another PC or Windows user, so it was removed. Sign in again to play."));
+            "The saved sign-in could not be read on this computer. Sign in again to replace it."));
+    case AccountStore::LoadStatus::Unavailable: {
+        AccountStore::log(QStringLiteral("Saved sign-in is temporarily unavailable: ") + error);
+        if (AccountStore::hasUsableLunarAccount())
+            return emit ready(false);
+        QMessageBox box(QMessageBox::Warning, QStringLiteral("ATW Client"),
+                        QStringLiteral("Your saved sign-in is temporarily unavailable. It has been preserved.\n\n") + error);
+        QPushButton* retry = box.addButton(QStringLiteral("Try again"), QMessageBox::AcceptRole);
+        QPushButton* offline = box.addButton(QStringLiteral("Play offline"), QMessageBox::DestructiveRole);
+        box.addButton(QMessageBox::Cancel);
+        box.exec();
+        if (box.clickedButton() == retry)
+            return start();
+        if (box.clickedButton() == offline)
+            return emit ready(true);
+        return emit cancelled();
+    }
     case AccountStore::LoadStatus::Missing:
         // Packages made from a copied Lunar profile keep working until expiry.
         if (AccountStore::hasUsableLunarAccount())
@@ -37,10 +55,17 @@ void AccountGate::refreshSaved() {
         connect(auth, &MsaAuth::succeeded, this, [this](const MinecraftAccount& account) {
             saved.account = account;
             QString error;
-            if (!AccountStore::save(saved, &error))
+            if (!AccountStore::save(saved, &error)) {
                 AccountStore::log(QStringLiteral("Refreshed sign-in could not be saved: ") + error);
+                QMessageBox::warning(nullptr, QStringLiteral("ATW Client"),
+                    QStringLiteral("Your Minecraft session was refreshed, but the saved sign-in could not be updated. "
+                                   "You may need to sign in again next time.\n\n") + error);
+            }
             AccountStore::log(QStringLiteral("Refreshed Minecraft session for %1.").arg(account.name));
-            emit ready(false);
+            // Saving can fail before writing Lunar's token (for example when
+            // Keychain is locked). Always publish the refreshed session and
+            // confirm that write before starting Minecraft.
+            useSaved();
         });
         connect(auth, &MsaAuth::failed, this, &AccountGate::onRefreshFailed);
     }
@@ -50,7 +75,6 @@ void AccountGate::refreshSaved() {
 void AccountGate::onRefreshFailed(const QString& message, bool needsSignIn) {
     AccountStore::log(QStringLiteral("Session refresh failed: ") + message);
     if (needsSignIn) {
-        AccountStore::signOut();
         return askSignIn(message);
     }
     // A short network outage should not block a token that still works.
@@ -72,8 +96,17 @@ void AccountGate::onRefreshFailed(const QString& message, bool needsSignIn) {
 
 void AccountGate::useSaved() {
     QString error;
-    if (!AccountStore::writeLunarAccount(saved, &error))
+    if (!AccountStore::writeLunarAccount(saved, &error)) {
         AccountStore::log(QStringLiteral("Could not update accounts.json: ") + error);
+        QMessageBox box(QMessageBox::Warning, QStringLiteral("ATW Client"),
+                        QStringLiteral("Could not give Minecraft your signed-in session.\n\n") + error);
+        QPushButton* retry = box.addButton(QStringLiteral("Try again"), QMessageBox::AcceptRole);
+        box.addButton(QMessageBox::Cancel);
+        box.exec();
+        if (box.clickedButton() == retry)
+            return useSaved();
+        return emit cancelled();
+    }
     emit ready(false);
 }
 

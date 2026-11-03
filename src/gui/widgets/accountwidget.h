@@ -9,6 +9,7 @@
 
 class QLabel;
 class QPushButton;
+class QProcess;
 class Config;
 
 class AccountWidget : public QWidget {
@@ -20,11 +21,16 @@ public:
 
 private:
     void onButtonClicked();
+#ifdef Q_OS_MACOS
+    void launchAccountAction();
+    QProcess* accountProcess = nullptr;
+#endif
 
     const Config& config;
     QLabel* statusLabel;
     QPushButton* button;
     bool signedIn = false;
+    bool storageUnavailable = false;
 };
 
 #endif // ATW_GUI_ACCOUNTWIDGET_H

@@ -109,12 +109,24 @@ QString AccountStore::accountFilePath() {
 #endif
 }
 
-AccountStore::LoadStatus AccountStore::load(SavedAccount& saved) {
+AccountStore::LoadStatus AccountStore::load(SavedAccount& saved, QString* error) {
+    saved = {};
+    if (error)
+        error->clear();
     if (!QFile::exists(accountFilePath()))
         return LoadStatus::Missing;
 
-    const QJsonObject file = readJsonFile(accountFilePath());
-    const QByteArray plain = unprotect(QByteArray::fromBase64(file["secret"].toString().toLatin1()));
+    QFile input(accountFilePath());
+    if (!input.open(QIODevice::ReadOnly)) {
+        if (error)
+            *error = input.errorString();
+        return LoadStatus::Unavailable;
+    }
+    const QJsonObject file = QJsonDocument::fromJson(input.readAll()).object();
+    bool unavailable = false;
+    const QByteArray plain = unprotect(QByteArray::fromBase64(file["secret"].toString().toLatin1()), error, &unavailable);
+    if (unavailable)
+        return LoadStatus::Unavailable;
     const QJsonObject secret = QJsonDocument::fromJson(plain).object();
     if (file["version"].toInt() != accountFileVersion || secret.isEmpty())
         return LoadStatus::Unreadable;
@@ -133,6 +145,22 @@ AccountStore::LoadStatus AccountStore::load(SavedAccount& saved) {
     return LoadStatus::Ok;
 }
 
+#ifdef Q_OS_MACOS
+bool AccountStore::savedAccountMetadata(QString* name) {
+    if (name)
+        name->clear();
+    const QJsonObject file = readJsonFile(accountFilePath());
+    const QByteArray marker = QByteArray::fromBase64(file["secret"].toString().toLatin1());
+    if (file["version"].toInt() != accountFileVersion || file["localId"].toString().isEmpty()
+            || file["name"].toString().isEmpty()
+            || (marker != QByteArray(legacyKeychainMarker) && uniqueKeychainAccount(marker).isEmpty()))
+        return false;
+    if (name)
+        *name = file["name"].toString();
+    return true;
+}
+#endif
+
 bool AccountStore::save(const SavedAccount& saved, QString* error) {
 #ifdef Q_OS_MACOS
     const QByteArray previous = QByteArray::fromBase64(
@@ -145,9 +173,9 @@ bool AccountStore::save(const SavedAccount& saved, QString* error) {
         {"accessToken", account.accessToken},
         {"expiresAt", account.expiresAt.toUTC().toString(Qt::ISODate)},
         {"refreshToken", account.refreshToken}};
-    const QByteArray encrypted = protect(QJsonDocument(secret).toJson(QJsonDocument::Compact));
+    const QByteArray encrypted = protect(QJsonDocument(secret).toJson(QJsonDocument::Compact), error);
     if (encrypted.isEmpty()) {
-        if (error)
+        if (error && error->isEmpty())
             *error = QStringLiteral("The operating system could not protect the sign-in for this user.");
         return false;
     }
@@ -256,7 +284,9 @@ bool AccountStore::tokenIsFresh(const MinecraftAccount& account, int marginSecon
 }
 
 #ifdef Q_OS_WIN
-QByteArray AccountStore::protect(const QByteArray& plain) {
+QByteArray AccountStore::protect(const QByteArray& plain, QString* error) {
+    if (error)
+        error->clear();
     DATA_BLOB input{DWORD(plain.size()), reinterpret_cast<BYTE*>(const_cast<char*>(plain.data()))};
     DATA_BLOB salt{DWORD(sizeof(entropy) - 1), reinterpret_cast<BYTE*>(const_cast<char*>(entropy))};
     DATA_BLOB output{};
@@ -267,7 +297,11 @@ QByteArray AccountStore::protect(const QByteArray& plain) {
     return result;
 }
 
-QByteArray AccountStore::unprotect(const QByteArray& encrypted) {
+QByteArray AccountStore::unprotect(const QByteArray& encrypted, QString* error, bool* unavailable) {
+    if (error)
+        error->clear();
+    if (unavailable)
+        *unavailable = false;
     if (encrypted.isEmpty())
         return {};
     DATA_BLOB input{DWORD(encrypted.size()), reinterpret_cast<BYTE*>(const_cast<char*>(encrypted.data()))};
@@ -281,7 +315,9 @@ QByteArray AccountStore::unprotect(const QByteArray& encrypted) {
     return result;
 }
 #elif defined(Q_OS_MACOS)
-QByteArray AccountStore::protect(const QByteArray& plain) {
+QByteArray AccountStore::protect(const QByteArray& plain, QString* error) {
+    if (error)
+        error->clear();
     if (plain.isEmpty())
         return {};
     const QByteArray marker = QByteArray(keychainMarkerPrefix)
@@ -294,10 +330,16 @@ QByteArray AccountStore::protect(const QByteArray& plain) {
     const OSStatus status = SecItemAdd(item, nullptr);
     CFRelease(item);
     CFRelease(value);
+    if (status != errSecSuccess && error)
+        *error = QStringLiteral("macOS Keychain could not save the sign-in (error %1). Unlock your login Keychain and try again.").arg(status);
     return status == errSecSuccess ? marker : QByteArray();
 }
 
-QByteArray AccountStore::unprotect(const QByteArray& encrypted) {
+QByteArray AccountStore::unprotect(const QByteArray& encrypted, QString* error, bool* unavailable) {
+    if (error)
+        error->clear();
+    if (unavailable)
+        *unavailable = false;
     const CFMutableDictionaryRef query = keychainQuery(encrypted);
     if (!query)
         return {};
@@ -305,8 +347,13 @@ QByteArray AccountStore::unprotect(const QByteArray& encrypted) {
     CFTypeRef result = nullptr;
     const OSStatus status = SecItemCopyMatching(query, &result);
     CFRelease(query);
-    if (status != errSecSuccess || !result)
+    if (status != errSecSuccess || !result) {
+        if (unavailable)
+            *unavailable = status != errSecItemNotFound;
+        if (error)
+            *error = QStringLiteral("macOS Keychain could not read the saved sign-in (error %1). Unlock your login Keychain and try again.").arg(status);
         return {};
+    }
     const CFDataRef value = static_cast<CFDataRef>(result);
     const QByteArray plaintext(reinterpret_cast<const char*>(CFDataGetBytePtr(value)),
         int(CFDataGetLength(value)));
@@ -315,8 +362,18 @@ QByteArray AccountStore::unprotect(const QByteArray& encrypted) {
 }
 #else
 // No OS-backed secret store is wired up outside Windows or macOS.
-QByteArray AccountStore::protect(const QByteArray&) { return {}; }
-QByteArray AccountStore::unprotect(const QByteArray&) { return {}; }
+QByteArray AccountStore::protect(const QByteArray&, QString* error) {
+    if (error)
+        *error = QStringLiteral("No operating-system secret store is available.");
+    return {};
+}
+QByteArray AccountStore::unprotect(const QByteArray&, QString* error, bool* unavailable) {
+    if (error)
+        *error = QStringLiteral("No operating-system secret store is available.");
+    if (unavailable)
+        *unavailable = true;
+    return {};
+}
 #endif
 
 void AccountStore::log(const QString& message) {

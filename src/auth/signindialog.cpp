@@ -116,12 +116,11 @@ void SignInDialog::start() {
 }
 
 void SignInDialog::onSucceeded(const MinecraftAccount& account) {
-    // Replace any previous account so only this one can be used here.
-    AccountStore::signOut();
+    // Save atomically before replacing the previous sign-in. A locked
+    // Keychain or failed file write must never sign out the existing account.
     AccountStore::SavedAccount saved{QUuid::createUuid().toString(QUuid::WithoutBraces), clientId, account};
     QString error;
     if (!AccountStore::save(saved, &error)) {
-        AccountStore::signOut();
         AccountStore::log(QStringLiteral("Sign-in could not be saved: ") + error);
         return onFailed(QStringLiteral("Signed in, but the account could not be saved. ") + error);
     }

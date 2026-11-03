@@ -13,6 +13,7 @@ import json
 import os
 from pathlib import Path
 import plistlib
+import re
 import shutil
 import stat
 import subprocess
@@ -30,6 +31,40 @@ PRIVATE_NAMES = {
     "bytecode-captures", "hookstage", "evidence", ".ds_store",
 }
 PRIVATE_NAMES.add("account.dat")
+
+GENESIS_JAR = "data/home/.lunarclient/offline/multiver/genesis-0.1.0-SNAPSHOT-all.jar"
+MAC_LIBRARIES = "data/home/Library/Application Support/minecraft/libraries"
+
+
+def validate_genesis_libraries(package):
+    """Require the pinned 1.8.9 dependencies at Genesis's actual Mac lookup.
+
+    The Windows-style game directory is not Genesis's library directory on Mac.
+    Without these files the otherwise self-contained app downloads at startup.
+    This deliberately handles the pinned versions.conf shape, not general HOCON.
+    """
+    with zipfile.ZipFile(package / GENESIS_JAR) as archive:
+        config = archive.read("versions.conf").decode("utf-8")
+    config = re.sub(r"#[^\n]*", "", config)
+    section = re.search(r"\bv1_8\s*:\s*\$\{legacy\}\s*\{(.*?)\bmodules\s*:", config, re.S)
+    dependencies = re.search(r"\bdependencies\s*:\s*\[([^]]*)\]", section[1], re.S) if section else None
+    if not dependencies:
+        raise ValueError("Pinned Genesis 1.8.9 dependency list is missing")
+    entries = re.findall(r'"([^"\n]+)"', dependencies[1])
+    if not entries or re.sub(r'"[^"\n]+"|[\s,]', '', dependencies[1]):
+        raise ValueError("Unsupported pinned Genesis dependency list")
+    for coordinate in entries:
+        parts = coordinate.split(":")
+        if len(parts) not in (3, 4) or any(not re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9_.-]*", p) for p in parts):
+            raise ValueError("Invalid Genesis dependency coordinate")
+        group, artifact, version = parts[:3]
+        relative = Path(group.replace(".", "/")) / artifact / version / ("-".join(parts[1:]) + ".jar")
+        path = package / MAC_LIBRARIES / relative
+        if not path.is_file() or not zipfile.is_zipfile(path):
+            raise ValueError(f"Missing or invalid Mac Genesis library: {relative}")
+        with zipfile.ZipFile(path) as archive:
+            if archive.testzip() is not None:
+                raise ValueError(f"Corrupt Mac Genesis library: {relative}")
 
 
 BOOTSTRAP = r'''#!/bin/sh
@@ -153,6 +188,7 @@ def create_app(package, output):
         if not (package / relative).is_file():
             raise ValueError(f"Missing prepared package input: {relative}")
     entries = inventory(package)
+    validate_genesis_libraries(package)
     encoded = json.dumps(entries, sort_keys=True, separators=(",", ":")).encode()
     release_id = hashlib.sha256(encoded).hexdigest()
     contents = output / "Contents"

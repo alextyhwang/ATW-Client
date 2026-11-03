@@ -21,6 +21,7 @@ REQUIRED = (
     "atw-launch.app", "atw-config.app", "runtime/java", "runtime/weave",
     "agents (DON'T TOUCH)", "libs (DON'T TOUCH)",
     "data/home/.lunarclient", "data/home/.weave", GAME,
+    "data/home/Library/Application Support/minecraft/libraries",
 )
 PINNED = (
     "runtime/weave/Weave-Loader-Agent-1.4.1.jar",

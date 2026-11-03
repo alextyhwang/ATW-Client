@@ -2,20 +2,80 @@
 #include <QCommandLineParser>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QTextStream>
 #include <QTimer>
+#include <QUuid>
 
 #include "auth/accountgate.h"
 #include "auth/accountstore.h"
 #include "auth/msaauth.h"
 #include "auth/onlinereadiness.h"
+#include "auth/signindialog.h"
 #include "config/config.h"
 #include "launch/offlinelauncher.h"
 #include "util/fs.h"
 
 namespace {
+// Explicit one-time transfer between the owner's machines. Consume the private
+// input immediately, then obtain a fresh session and protect it on this OS.
+int importAccount(QApplication& app, const QString& path) {
+    const QFileInfo info(path);
+    const auto publicAccess = QFileDevice::ReadGroup | QFileDevice::WriteGroup
+        | QFileDevice::ReadOther | QFileDevice::WriteOther;
+    if (!info.isFile() || info.isSymLink()
+#ifdef Q_OS_MACOS
+            || (info.permissions() & publicAccess)
+#endif
+    ) {
+        AccountStore::log(QStringLiteral("Account import: expected a private regular file."));
+        return 1;
+    }
+    QFile input(path);
+    if (!input.open(QIODevice::ReadOnly) || input.size() > 64 * 1024) {
+        AccountStore::log(QStringLiteral("Account import: cannot read private input."));
+        return 1;
+    }
+    const QByteArray bytes = input.readAll();
+    input.close();
+    if (!input.remove()) {
+        AccountStore::log(QStringLiteral("Account import: cannot consume private input."));
+        return 1;
+    }
+    const QJsonObject data = QJsonDocument::fromJson(bytes).object();
+    const QString refresh = data["refreshToken"].toString();
+    const QString clientId = data["clientId"].toString();
+    const QString expectedUuid = data["uuid"].toString();
+    if (refresh.isEmpty() || clientId.isEmpty() || expectedUuid.isEmpty()) {
+        AccountStore::log(QStringLiteral("Account import: required fields missing."));
+        return 1;
+    }
+    MsaAuth auth(clientId);
+    QObject::connect(&auth, &MsaAuth::succeeded, &app, [&](const MinecraftAccount& account) {
+        if (account.uuid != expectedUuid) {
+            AccountStore::log(QStringLiteral("Account import: profile mismatch; existing sign-in preserved."));
+            return app.exit(1);
+        }
+        AccountStore::SavedAccount saved{
+            QUuid::createUuid().toString(QUuid::WithoutBraces), clientId, account};
+        QString error;
+        if (!AccountStore::save(saved, &error)) {
+            AccountStore::log(QStringLiteral("Account import could not save sign-in: ") + error);
+            return app.exit(1);
+        }
+        AccountStore::log(QStringLiteral("Imported and refreshed sign-in for %1.").arg(account.name));
+        app.exit(0);
+    });
+    QObject::connect(&auth, &MsaAuth::failed, &app, [&](const QString& message, bool) {
+        AccountStore::log(QStringLiteral("Account import failed: ") + message);
+        app.exit(1);
+    });
+    QTimer::singleShot(0, &auth, [&]() { auth.refresh(refresh); });
+    return QApplication::exec();
+}
+
 // Checks the parts of sign-in that need no user: DPAPI, Lunar's date format,
 // device-code issuance and polling, and rejection of a bad refresh token.
 // Prints no codes or tokens and never touches account files.
@@ -204,9 +264,30 @@ int main(int argc, char *argv[]) {
         QCoreApplication::translate("onlineReadiness", "Check the saved sign-in for online play (redacted) and exit"));
     parser.addOption(readinessOption);
 
+    QCommandLineOption importOption("import-account",
+        QCoreApplication::translate("importAccount", "Consume a private account-transfer file and save a fresh sign-in"),
+        QStringLiteral("file"));
+    parser.addOption(importOption);
+
+    QCommandLineOption signInOption("sign-in", QStringLiteral("Manage Microsoft sign-in without launching the game"));
+    QCommandLineOption signOutOption("sign-out", QStringLiteral("Sign out of this ATW installation without launching the game"));
+    parser.addOption(signInOption);
+    parser.addOption(signOutOption);
+
     parser.process(app);
 
+    if (parser.isSet(importOption))
+        return importAccount(app, parser.value(importOption));
+
     Config config = Config::load();
+    if (parser.isSet(signOutOption)) {
+        AccountStore::signOut();
+        return QFile::exists(AccountStore::accountFilePath()) ? 1 : 0;
+    }
+    if (parser.isSet(signInOption)) {
+        SignInDialog dialog(config.msaClientId, false, QString());
+        return dialog.exec() == QDialog::Accepted ? 0 : 1;
+    }
     if (parser.isSet(authSelfTestOption))
         return runAuthSelfTest(app, config.msaClientId);
     if (parser.isSet(storeSelfTestOption))

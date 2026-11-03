@@ -29,6 +29,28 @@ class MacAppTests(unittest.TestCase):
             path = self.package / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("{}" if name.endswith("json") else "#!/bin/sh\nexit 0\n")
+        genesis = self.package / app.GENESIS_JAR
+        genesis.parent.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(genesis, "w") as archive:
+            archive.writestr("versions.conf", 'v1_8: ${legacy} { dependencies: ["org.example:fixture:1.0"] modules: [] }')
+        self.library = self.package / app.MAC_LIBRARIES / "org/example/fixture/1.0/fixture-1.0.jar"
+        self.library.parent.mkdir(parents=True)
+        with zipfile.ZipFile(self.library, "w") as archive:
+            archive.writestr("fixture.txt", "dependency fixture")
+
+    def test_missing_mac_library_rejects_even_with_windows_library(self):
+        windows = self.package / "data/home/AppData/Roaming/.minecraft/libraries/fixture.jar"
+        windows.parent.mkdir(parents=True)
+        windows.write_bytes(self.library.read_bytes())
+        self.library.unlink()
+        with self.assertRaisesRegex(ValueError, "Mac Genesis library"):
+            app.create_app(self.package, self.root / "incomplete.app")
+        self.assertFalse((self.root / "incomplete.app").exists())
+
+    def test_invalid_library_rejects_app(self):
+        self.library.write_text("download failed")
+        with self.assertRaisesRegex(ValueError, "Mac Genesis library"):
+            app.create_app(self.package, self.root / "invalid.app")
 
     def test_copy_preserves_seed_and_content_identity(self):
         before = app.inventory(self.package)
