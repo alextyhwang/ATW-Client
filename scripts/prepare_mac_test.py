@@ -552,6 +552,11 @@ def main():
     for name in ("assets", "libraries", "versions"):
         if (minecraft / name).exists():
             copy_tree(minecraft / name, parent / name)
+    # Genesis uses the platform default for libraries independently of the
+    # configured Windows-style game directory. Stage both lookups explicitly.
+    if (minecraft / "libraries").exists():
+        copy_tree(minecraft / "libraries", prepared /
+                  "data/home/Library/Application Support/minecraft/libraries")
     for relative in selected:
         copy_file(checked_file(baseline, relative), prepared / relative)
     (prepared / LIBS).mkdir(parents=True)

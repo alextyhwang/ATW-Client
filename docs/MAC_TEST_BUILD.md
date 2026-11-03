@@ -79,8 +79,11 @@ Supply these real local inputs before preparation:
   The audio helper is validated as a Mach-O executable. A renamed Windows ZIP
   fails inspection.
 - The actual Mac Minecraft **parent**, containing `lunarclient/`,
-  `assets/objects/`, and `assets/indexes/1.8.json`. Optional `libraries/` and
-  `versions/` are copied beside the game. If local data has another layout,
+  `assets/objects/`, and `assets/indexes/1.8.json`. `libraries/` must contain all
+  74 dependencies from the pinned Genesis 1.8.9 `versions.conf` for the finished
+  self-contained app. Preparation copies it both beside the game and into the
+  Mac private-home lookup. Optional `versions/` is copied beside the game.
+  If local data has another layout,
   prepare an explicit private parent with this shape; the driver cannot infer
   an alternative profile or download missing assets.
 - A Qt 5/6 installation prefix with the required Core/Gui/Widgets/Svg/Network
