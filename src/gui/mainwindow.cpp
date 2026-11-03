@@ -4,15 +4,23 @@
 
 #include "mainwindow.h"
 
+#include <QCloseEvent>
 #include <QCoreApplication>
-#include <QVBoxLayout>
-#include <QHBoxLayout>
-#include <QStatusBar>
-#include <QStandardPaths>
-#include <QJsonDocument>
+#include <QCursor>
+#include <QDir>
+#include <QFileInfo>
 #include <QFileSystemModel>
+#include <QGuiApplication>
+#include <QHBoxLayout>
 #include <QIODevice>
-#include <QFrame>
+#include <QLabel>
+#include <QProcess>
+#include <QScreen>
+#include <QScrollArea>
+#include <QShortcut>
+#include <QStackedWidget>
+#include <QStyle>
+#include <QVBoxLayout>
 
 #include "pages/configurationpage.h"
 #include "pages/gamepage.h"
@@ -21,11 +29,39 @@
 #include "pages/packspage.h"
 #include "launch/launcher.h"
 #include "buildconfig.h"
-#include "widgets/widgetutils.h"
+#include "gui/style/atwtheme.h"
+#include "widgets/customtabbar.h"
 #include "widgets/customtitlebar.h"
-#include "widgets/customtabwidget.h"
+#include "widgets/launchbutton.h"
+#include "widgets/windowframe.h"
 #include "util/fs.h"
-#include <QGraphicsDropShadowEffect>
+
+#ifdef ATW_CONFIG_ONLY
+#ifdef Q_OS_WIN
+#include <windows.h>
+#else
+#include <cerrno>
+#include <csignal>
+#include <sys/types.h>
+#endif
+#endif
+
+using namespace AtwTheme;
+
+namespace {
+QScrollArea* wrapPage(QWidget* page) {
+    // Pages scroll only when the window is shorter than the Figma frame.
+    QScrollArea* scroll = new QScrollArea();
+    scroll->setObjectName(QStringLiteral("pageScroll"));
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setWidgetResizable(true);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    scroll->setWidget(page);
+    scroll->viewport()->setAutoFillBackground(false);
+    page->setAutoFillBackground(false);
+    return scroll;
+}
+}
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), config(Config::load()), offlineLauncher(config, false, NULL){
 #ifdef ATW_CONFIG_ONLY
@@ -55,33 +91,39 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), config(Config::lo
         pixmap.save(&file, "ICO");
     }
 #endif
-    setWindowFlags(Qt::FramelessWindowHint | Qt::Window);
-    
+    // Frameless, rounded Figma frame. The minimize hint keeps taskbar/Dock
+    // minimizing working without drawing a native frame.
+    setWindowFlags(Qt::FramelessWindowHint | Qt::Window | Qt::WindowMinimizeButtonHint);
+    setAttribute(Qt::WA_TranslucentBackground);
 
-    launchButton = new QPushButton();
-    launchButton->setObjectName("launchButton");
-    launchButton->setFixedSize(362, 98);
-    launchButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-    launchButton->setCursor(Qt::PointingHandCursor);
-    launchButton->setFlat(true);
-    launchButton->setAutoFillBackground(false);
-#ifndef ATW_CONFIG_ONLY
-    connect(launchButton, &QPushButton::clicked, this, &MainWindow::launchOrEndProcess);
+    frame = new WindowFrame(this);
+    const int m = WindowFrame::shadowMargin();
 
-    QHBoxLayout* launchButtonLayout = new QHBoxLayout();
-    launchButtonLayout->setAlignment(Qt::AlignCenter);
-    launchButtonLayout->setContentsMargins(0, 0, 0, 12);
-    launchButtonLayout->addStretch();
-    launchButtonLayout->addWidget(launchButton, 0, Qt::AlignCenter);
-    launchButtonLayout->addStretch();
-#else
-    launchButton->hide();
-#endif
+    CustomTitleBar* titleBar = new CustomTitleBar(frame);
 
-    tabWidget = new CustomTabWidget(this);
-    tabWidget->setContentsMargins(0, 0, 0, 0);
-    tabWidget->tabBar()->setExpanding(false);
-    tabWidget->tabBar()->setCursor(Qt::PointingHandCursor);
+    launchButton = new LaunchButton(frame);
+    connect(launchButton, &QAbstractButton::clicked, this, &MainWindow::launchOrEndProcess);
+
+    // Tab tray: 528 x 66 (9 px padding) holding four raised tabs.
+    QFrame* tray = new QFrame(frame);
+    tray->setObjectName(QStringLiteral("tray"));
+    tray->setFixedHeight(Metrics::TrayHeight);
+    tabBar = new CustomTabBar(tray);
+    QHBoxLayout* trayLayout = new QHBoxLayout(tray);
+    // The tab edge is 4 px tall; it overhangs the 48 px slot by 1 px (Figma).
+    trayLayout->setContentsMargins(Metrics::TrayPadding, Metrics::TrayPadding,
+                                   Metrics::TrayPadding, Metrics::TrayPadding - 1);
+    trayLayout->addWidget(tabBar);
+
+    // Content card: 528 wide with 18 px padding.
+    QFrame* card = new QFrame(frame);
+    card->setObjectName(QStringLiteral("card"));
+    pageStack = new QStackedWidget(card);
+    pageStack->setObjectName(QStringLiteral("pageStack"));
+    QVBoxLayout* cardLayout = new QVBoxLayout(card);
+    cardLayout->setContentsMargins(Metrics::CardPadding, Metrics::CardPadding,
+                                   Metrics::CardPadding, Metrics::CardPadding);
+    cardLayout->addWidget(pageStack);
 
     pages = {
         new GamePage(config),
@@ -90,16 +132,46 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), config(Config::lo
         new OtherPage(config)
     };
     logsPage = static_cast<OtherPage*>(pages.last())->logsPage;
+    for (ConfigurationPage* page : pages) {
+        tabBar->addTab(page->title());
+        pageStack->addWidget(wrapPage(page));
+    }
+    connect(tabBar, &QTabBar::currentChanged, pageStack, &QStackedWidget::setCurrentIndex);
 
-    tabWidget->addTab(pages[0], pages[0]->title());
-    tabWidget->addTab(pages[1], pages[1]->title());
-    tabWidget->addTab(pages[2], pages[2]->title());
-    tabWidget->addTab(pages[3], pages[3]->title());
+    // Vertical rhythm follows the Figma frame: title row at 22, LAUNCH at 107,
+    // tray at 210, card at 288 and a 27 px bottom margin.
+    QVBoxLayout* root = new QVBoxLayout(frame);
+    root->setSpacing(0);
+    root->setContentsMargins(m + Metrics::Margin, m + Metrics::TitleTop, m + Metrics::Margin, m + Metrics::BottomMargin);
+    root->addWidget(titleBar);
+    root->addSpacing(Metrics::LaunchTop - Metrics::TitleTop - Metrics::TitleRowHeight);
+    root->addWidget(launchButton, 0, Qt::AlignHCenter);
+    root->addSpacing(Metrics::TrayTop - (Metrics::LaunchTop + Metrics::LaunchFaceHeight + Metrics::LaunchEdge));
+    root->addWidget(tray);
+    root->addSpacing(Metrics::CardTop - (Metrics::TrayTop + Metrics::TrayHeight));
+    root->addWidget(card, 1);
+    setCentralWidget(frame);
 
-    tabWidget->setTabType(0, QStringLiteral("game"));
-    tabWidget->setTabType(1, QStringLiteral("mods"));
-    tabWidget->setTabType(2, QStringLiteral("packs"));
-    tabWidget->setTabType(3, QStringLiteral("other"));
+    // Transient status line in the frame's bottom margin (replaces a status bar).
+    toast = new QLabel(frame);
+    toast->setObjectName(QStringLiteral("toast"));
+    toast->setAttribute(Qt::WA_TransparentForMouseEvents);
+    toast->hide();
+    toastTimer = new QTimer(this);
+    toastTimer->setSingleShot(true);
+    connect(toastTimer, &QTimer::timeout, toast, &QWidget::hide);
+
+    for (int i = 0; i < pages.size(); ++i) {
+        QShortcut* shortcut = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key(Qt::Key_1 + i)), this);
+        connect(shortcut, &QShortcut::activated, this, [this, i]() { tabBar->setCurrentIndex(i); });
+    }
+    QShortcut* closeShortcut = new QShortcut(QKeySequence::Close, this);
+    connect(closeShortcut, &QShortcut::activated, this, &QWidget::close);
+
+    // Opens at the Figma frame size; resizable, with the card absorbing changes.
+    setMinimumSize(Metrics::FrameWidth + 2 * m, 560 + 2 * m);
+    resize(Metrics::FrameWidth + 2 * m, Metrics::FrameHeight + 2 * m);
+    fitToScreen();
 
 #ifndef ATW_CONFIG_ONLY
     connect(&offlineLauncher, &OfflineLauncher::error, this, &MainWindow::errorCallback);
@@ -111,220 +183,11 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), config(Config::lo
     processCheckTimer->start(1000);
 
     resetLaunchButtons();
+#else
+    handoffTimer = new QTimer(this);
+    handoffTimer->setInterval(800);
+    connect(handoffTimer, &QTimer::timeout, this, &MainWindow::pollHandoff);
 #endif
-
-    CustomTitleBar* titleBar = new CustomTitleBar(this);
-
-    // Tab bar container div
-    QWidget* tabBarContainer = new QWidget(this);
-    tabBarContainer->setFixedSize(484, 74);
-    tabBarContainer->setObjectName("tabBarContainer");
-    tabBarContainer->setStyleSheet("QWidget#tabBarContainer { background-color: #242425; border-radius: 0px; }");
-    QHBoxLayout* tabBarLayout = new QHBoxLayout(tabBarContainer);
-    tabBarLayout->setContentsMargins(9, 0, 0, 0);
-    tabBarLayout->setAlignment(Qt::AlignCenter);
-    tabBarLayout->addWidget(tabWidget->tabBar());
-    
-    QHBoxLayout* tabBarCenterLayout = new QHBoxLayout();
-    tabBarCenterLayout->addStretch();
-    tabBarCenterLayout->addWidget(tabBarContainer);
-    tabBarCenterLayout->addStretch();
-    tabBarCenterLayout->setContentsMargins(0, 55, 0, 14);
-
-    QWidget* tabContentContainer = new QWidget();
-    tabContentContainer->setObjectName("tabContentContainer");
-    tabContentContainer->setStyleSheet("QWidget#tabContentContainer { background-color: #303031; border-radius: 0px; }");
-    QVBoxLayout* tabContentLayout = new QVBoxLayout(tabContentContainer);
-    tabContentLayout->setContentsMargins(0, 0, 0, 0);
-    tabContentLayout->setSpacing(0);
-    tabContentLayout->addLayout(tabBarCenterLayout);
-    tabContentLayout->addWidget(tabWidget);
-
-    QVBoxLayout* mainLayout = new QVBoxLayout();
-    mainLayout->setSpacing(0);
-    mainLayout->setContentsMargins(0, 0, 0, 0);
-    mainLayout->addWidget(titleBar);
-#ifndef ATW_CONFIG_ONLY
-    mainLayout->addLayout(launchButtonLayout);
-#endif
-    mainLayout->addWidget(tabContentContainer, 1);
-
-    QWidget* central = WidgetUtils::layoutToWidget(mainLayout);
-    central->setObjectName("centralWidget");
-    setCentralWidget(central);
-    setFixedSize(572, 749);
-
-    QString css = R"(
-        * {
-            font-family: "%1";
-        }
-        QMainWindow, QWidget#centralWidget {
-            background-color: #1F1F20;
-            color: #929292;
-            font-size: 16px;
-        }
-        QLabel {
-            color: #929292;
-            font-size: 18px;
-            text-transform: none;
-        }
-        QTabWidget::pane {
-            border: none;
-            background: transparent;
-        }
-        QWidget#configPage {
-            background-color: #242425;
-            border-radius: 0px;
-            margin: 0px 88px 31px 88px;
-            padding: 18px 20px;
-        }
-        /* Nested config pages inside other tabs shouldn't double-margin */
-        QWidget#configPage QWidget#configPage {
-            margin: 0;
-            padding: 0;
-            border-radius: 0;
-            background: transparent;
-        }
-        QTabWidget::tab-bar {
-            alignment: center;
-        }
-        QTabBar {
-            background-color: transparent;
-            padding: 0;
-            margin: 0;
-        }
-        QTabBar#mainTabBar::tab {
-            color: transparent;
-            margin-right: 10px;
-            width: 120px;
-            height: 48px;
-            border: none;
-            background: transparent;
-        }
-        QTabBar#mainTabBar::tab:last {
-            margin-right: 0px;
-        }
-        QTabBar#mainTabBar::tab:!selected {
-            color: transparent;
-            background: transparent;
-            border: none;
-        }
-        QTabBar#mainTabBar::tab:selected {
-            color: transparent;
-            background: transparent;
-            border: none;
-        }
-        QTabBar::tab:!selected {
-            color: #5C5C60;
-            background: transparent;
-            padding: 8px 16px;
-            border-bottom: 2px solid transparent;
-        }
-        QTabBar::tab:selected {
-            color: #E7EDF9;
-            background: transparent;
-            padding: 8px 16px;
-            border-bottom: 2px solid #4779D8;
-        }
-        QTabBar::tab:hover:!selected {
-            color: #929292;
-        }
-        QTabBar::tab:last {
-            margin-right: 0px;
-        }
-        QSlider::horizontal {
-            min-height: 24px;
-        }
-        QSlider::groove:horizontal {
-            border: none;
-            height: 12px;
-            border-image: url(:/res/slider/track.svg) 0 0 0 0 stretch stretch;
-        }
-        QSlider::handle:horizontal {
-            image: url(:/res/slider/thumb.svg);
-            width: 30px;
-            height: 21px;
-            margin: -5px 0;
-        }
-        QLineEdit, QPlainTextEdit {
-            background-color: #343435;
-            border: none;
-            color: #6C6C6C;
-            padding: 6px 10px;
-            border-radius: 0;
-            font-size: 16px;
-            selection-background-color: #4779D8;
-        }
-        QLineEdit:focus, QPlainTextEdit:focus {
-            border: none;
-        }
-        QScrollBar:vertical {
-            border: none;
-            background: #252526;
-            width: 12px;
-            margin: 0;
-            border-radius: 6px;
-        }
-        QScrollBar::handle:vertical {
-            background: #454545;
-            min-height: 20px;
-            border-radius: 6px;
-            margin: 2px;
-        }
-        QScrollBar::handle:vertical:hover {
-            background: #5C5C60;
-        }
-        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-            border: none;
-            background: none;
-            height: 0px;
-        }
-        QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
-            background: none;
-        }
-        QCheckBox {
-            color: #929292;
-            font-size: 18px;
-        }
-        QCheckBox::indicator {
-            width: 68px;
-            height: 28px;
-        }
-        QCheckBox::indicator:unchecked {
-            image: url(:/res/toggle/off.svg);
-        }
-        QCheckBox::indicator:checked {
-            image: url(:/res/toggle/on.svg);
-        }
-        QPushButton {
-            background-color: #343435;
-            border: 1px solid #454545;
-            color: #929292;
-            padding: 8px 16px;
-            border-radius: 4px;
-            font-size: 14px;
-        }
-        QPushButton:hover {
-            background-color: #3d3d3e;
-            border: 1px solid #5C5C60;
-        }
-        QPushButton:pressed {
-            background-color: #2d2d2e;
-        }
-        QPushButton#launchButton {
-            background: transparent;
-            border-image: url(:/res/launchbutton/normal.png);
-        }
-        QPushButton#launchButton:hover, QPushButton#launchButton:pressed {
-            background: transparent;
-            border-image: url(:/res/launchbutton/normal.png);
-        }
-        QPushButton#launchButton[running="true"] {
-            background: transparent;
-            border-image: url(:/res/launchbutton/running.png);
-        }
-    )";
-    setStyleSheet(css.arg(font().family()));
 
     load();
 
@@ -334,6 +197,63 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), config(Config::lo
 
     updaterChecker.checkForUpdates(false);
 #endif
+}
+
+MainWindow::~MainWindow() {
+#ifdef ATW_CONFIG_ONLY
+    // The handed-off launcher keeps running; only drop our observation handle.
+    endHandoffTracking();
+#endif
+}
+
+void MainWindow::fitToScreen() {
+    QScreen* screen = QGuiApplication::screenAt(QCursor::pos());
+    if (!screen)
+        screen = QGuiApplication::primaryScreen();
+    if (!screen)
+        return;
+    const QRect available = screen->availableGeometry();
+    const int m = WindowFrame::shadowMargin();
+    // Small or scaled displays: keep the visible frame inside the work area and
+    // let the settings card scroll instead.
+    const int maxHeight = available.height() + 2 * m;
+    if (minimumHeight() > maxHeight)
+        setMinimumHeight(qMax(420, maxHeight));
+    QSize size = this->size().boundedTo(QSize(available.width() + 2 * m, maxHeight));
+    resize(size);
+    move(available.center() - QPoint(size.width() / 2, size.height() / 2));
+}
+
+void MainWindow::resizeEvent(QResizeEvent* event) {
+    QMainWindow::resizeEvent(event);
+    positionToast();
+}
+
+void MainWindow::positionToast() {
+    if (!toast || !frame)
+        return;
+    const QRect visible = frame->frameRect();
+    toast->setMaximumWidth(visible.width() - 2 * Metrics::Margin);
+    toast->adjustSize();
+    const int y = visible.bottom() + 1 - Metrics::BottomMargin + (Metrics::BottomMargin - toast->height()) / 2;
+    toast->move(visible.left() + (visible.width() - toast->width()) / 2, y);
+}
+
+void MainWindow::showStatus(const QString& message, bool error, int timeoutMs) {
+    toast->setText(message);
+    toast->setProperty("tone", error ? QStringLiteral("error") : QStringLiteral("info"));
+    toast->setToolTip(message);
+    toast->style()->unpolish(toast);
+    toast->style()->polish(toast);
+    positionToast();
+    toast->show();
+    toast->raise();
+    toastTimer->start(timeoutMs);
+}
+
+void MainWindow::showLogs() {
+    tabBar->setCurrentIndex(3);  // Other tab
+    static_cast<OtherPage*>(pages.last())->showLogsTab();
 }
 
 void MainWindow::resetLaunchButtons() {
@@ -348,20 +268,32 @@ void MainWindow::updateLaunchButtonState() {
 #ifdef ATW_CONFIG_ONLY
     return;
 #else
-    if (offlineLauncher.isProcessRunning()) {
-        launchButton->setProperty("running", true);
-    } else {
-        launchButton->setProperty("running", false);
-    }
-    launchButton->style()->unpolish(launchButton);
-    launchButton->style()->polish(launchButton);
+    launchButton->setMode(offlineLauncher.isProcessRunning() ? LaunchButton::Mode::Close
+                                                             : LaunchButton::Mode::Launch);
     launchButton->setEnabled(true);
 #endif
 }
 
 void MainWindow::launchOrEndProcess() {
 #ifdef ATW_CONFIG_ONLY
-    return;
+    if (handoffPid) {
+        showStatus(QStringLiteral("ATW Client is already running."));
+        return;
+    }
+    apply();
+    config.save();
+    if (!startLauncherHandoff())
+        return;
+    if (config.closeOnLaunch) {
+        close();
+        return;
+    }
+    launchButton->setMode(LaunchButton::Mode::Busy);
+    showStatus(QStringLiteral("Starting ATW Client..."));
+    handoffTimer->start();
+    // atw-launch writes the same package logs the Logs tab tails.
+    if (logsPage)
+        logsPage->startPolling();
 #else
     if (offlineLauncher.isProcessRunning()) {
         offlineLauncher.endProcess();
@@ -373,14 +305,69 @@ void MainWindow::launchOrEndProcess() {
     if (offlineLauncher.launch()) {
         if (logsPage) {
             logsPage->startPolling();
-            tabWidget->setCurrentIndex(3);  // Other tab
-            static_cast<OtherPage*>(pages.last())->showLogsTab();
+            showLogs();
         }
         if (config.closeOnLaunch)
             close();
     }
 #endif
 }
+
+#ifdef ATW_CONFIG_ONLY
+bool MainWindow::startLauncherHandoff() {
+    const QString root = FS::getPackageRoot();
+#if defined(Q_OS_MACOS)
+    const QString program = QDir(root).filePath(QStringLiteral("atw-launch.app/Contents/MacOS/atw-launch"));
+#elif defined(Q_OS_WIN)
+    const QString program = QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("atw-launch.exe"));
+#else
+    const QString program = QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("atw-launch"));
+#endif
+    const QFileInfo launcher(program);
+    if (!launcher.isFile() || !launcher.isExecutable()) {
+        showStatus(QStringLiteral("atw-launch is missing from this package."), true, 10000);
+        return false;
+    }
+    qint64 pid = 0;
+    if (!QProcess::startDetached(launcher.absoluteFilePath(), {}, root, &pid) || pid <= 0) {
+        showStatus(QStringLiteral("Could not start atw-launch."), true, 10000);
+        return false;
+    }
+    handoffPid = pid;
+#ifdef Q_OS_WIN
+    handoffHandle = OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, DWORD(pid));
+#endif
+    return true;
+}
+
+void MainWindow::pollHandoff() {
+    bool running = false;
+#ifdef Q_OS_WIN
+    running = handoffHandle && WaitForSingleObject(static_cast<HANDLE>(handoffHandle), 0) == WAIT_TIMEOUT;
+#else
+    running = handoffPid > 0 && (::kill(pid_t(handoffPid), 0) == 0 || errno == EPERM);
+#endif
+    if (running)
+        return;
+    endHandoffTracking();
+    if (logsPage)
+        logsPage->stopPolling();
+    launchButton->setMode(LaunchButton::Mode::Launch);
+    // atw-launch may have signed in or out; show the current account.
+    static_cast<GamePage*>(pages.first())->refreshAccount();
+}
+
+void MainWindow::endHandoffTracking() {
+    if (handoffTimer)
+        handoffTimer->stop();
+#ifdef Q_OS_WIN
+    if (handoffHandle)
+        CloseHandle(static_cast<HANDLE>(handoffHandle));
+#endif
+    handoffHandle = nullptr;
+    handoffPid = 0;
+}
+#endif
 
 void MainWindow::closeEvent(QCloseEvent *event) {
     apply();
@@ -404,11 +391,10 @@ void MainWindow::load() {
 
 
 void MainWindow::errorCallback(const QString &message) {
-    statusBar()->showMessage(message, 10000);
+    showStatus(message, true, 10000);
     if (logsPage) {
         logsPage->stopPolling();
-        tabWidget->setCurrentIndex(3);  // Other tab
-        static_cast<OtherPage*>(pages.last())->showLogsTab();
+        showLogs();
         logsPage->appendToMainLog(QStringLiteral("[Launcher Error] ") + message);
     }
 }
@@ -416,11 +402,11 @@ void MainWindow::errorCallback(const QString &message) {
 #ifdef INCLUDE_UPDATER
 
 void MainWindow::updateAvailable(const QString &url) {
-    statusBar()->showMessage(QStringLiteral("Update available: ") + url, 15000);
+    showStatus(QStringLiteral("Update available: ") + url, false, 15000);
 }
 
 void MainWindow::noUpdatesAvailable() {
-    statusBar()->showMessage(QStringLiteral("No updates available."), 3000);
+    showStatus(QStringLiteral("No updates available."), false, 3000);
 }
 
 #endif

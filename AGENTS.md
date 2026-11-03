@@ -6,6 +6,8 @@ This is the independent ATW-Client-Performance checkout. Target Lunar Minecraft
 ## Read only what the task needs
 
 - Build or change the launcher: [README.md](README.md).
+- Change the launcher/config UI: [docs/UI_DESIGN.md](docs/UI_DESIGN.md)
+  (Figma reference, tokens, components); styles live in `src/gui/style/atwtheme.*`.
 - Change launcher settings: `src/config/config.h` and `src/config/config.cpp`
   own schema, defaults and persistence. Add/load/save fields there and consume
   them in launch/UI code. Use `atw-config` for settings; `--gui` and

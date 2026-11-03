@@ -1,0 +1,16 @@
+<!-- Figma reference: Frame 21 (node 2427:642). Pixel cross for the close tile (7x7 grid). -->
+<svg width="7" height="7" viewBox="0 0 7 7" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">
+<g fill="#FFFFFF">
+<rect x="0" y="0" width="2" height="1"/>
+<rect x="5" y="0" width="2" height="1"/>
+<rect x="0" y="1" width="3" height="1"/>
+<rect x="4" y="1" width="3" height="1"/>
+<rect x="1" y="2" width="5" height="1"/>
+<rect x="2" y="3" width="3" height="1"/>
+<rect x="1" y="4" width="5" height="1"/>
+<rect x="0" y="5" width="3" height="1"/>
+<rect x="4" y="5" width="3" height="1"/>
+<rect x="0" y="6" width="2" height="1"/>
+<rect x="5" y="6" width="2" height="1"/>
+</g>
+</svg>

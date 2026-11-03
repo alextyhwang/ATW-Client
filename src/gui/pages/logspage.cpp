@@ -7,12 +7,14 @@
 #include <QVBoxLayout>
 #include <QFile>
 #include <QFont>
+#include <QFontDatabase>
 #include <QRegularExpression>
+#include <QTabBar>
 
 #include "util/fs.h"
 
 LogHighlighter::LogHighlighter(QTextDocument* parent) : QSyntaxHighlighter(parent) {
-    errorFormat.setForeground(Qt::red);
+    errorFormat.setForeground(QColor(0xFF, 0x76, 0x76));   // Figma close-state red
     errorFormat.setFontWeight(QFont::Bold);
 }
 
@@ -31,28 +33,34 @@ void LogHighlighter::highlightBlock(const QString& text) {
 
 LogsPage::LogsPage(Config& config, QWidget* parent) : ConfigurationPage(config, parent) {
     tabWidget = new QTabWidget(this);
+    tabWidget->setObjectName(QStringLiteral("subTabs"));
+    tabWidget->setDocumentMode(true);
+    tabWidget->tabBar()->setUsesScrollButtons(false);
+    tabWidget->tabBar()->setDrawBase(false);
+    tabWidget->tabBar()->setCursor(Qt::PointingHandCursor);
+    // Platform monospace font (Consolas, Menlo, ...); styled as a console.
+    const QFont logFont = QFontDatabase::systemFont(QFontDatabase::FixedFont);
     mainLogEdit = new QPlainTextEdit(this);
+    mainLogEdit->setObjectName(QStringLiteral("logView"));
     mainLogEdit->setReadOnly(true);
-#ifdef Q_OS_WIN
-    mainLogEdit->setFont(QFont(QStringLiteral("Consolas"), 9));
-#else
-    mainLogEdit->setFont(QFont(QStringLiteral("Monospace"), 9));
-#endif
+    mainLogEdit->setFont(logFont);
+    mainLogEdit->setAccessibleName(QStringLiteral("Main log"));
+    mainLogEdit->setPlaceholderText(QStringLiteral("Launcher output appears here while ATW Client runs."));
     new LogHighlighter(mainLogEdit->document());
 
     rendererLogEdit = new QPlainTextEdit(this);
+    rendererLogEdit->setObjectName(QStringLiteral("logView"));
     rendererLogEdit->setReadOnly(true);
-#ifdef Q_OS_WIN
-    rendererLogEdit->setFont(QFont(QStringLiteral("Consolas"), 9));
-#else
-    rendererLogEdit->setFont(QFont(QStringLiteral("Monospace"), 9));
-#endif
+    rendererLogEdit->setFont(logFont);
+    rendererLogEdit->setAccessibleName(QStringLiteral("Renderer log"));
+    rendererLogEdit->setPlaceholderText(QStringLiteral("Game output appears here while ATW Client runs."));
     new LogHighlighter(rendererLogEdit->document());
 
     tabWidget->addTab(mainLogEdit, QStringLiteral("Main"));
     tabWidget->addTab(rendererLogEdit, QStringLiteral("Renderer"));
 
     QVBoxLayout* layout = new QVBoxLayout(this);
+    layout->setContentsMargins(0, 0, 0, 0);
     layout->addWidget(tabWidget);
 
     pollTimer = new QTimer(this);

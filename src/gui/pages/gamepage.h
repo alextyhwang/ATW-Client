@@ -13,6 +13,8 @@
 #include "configurationpage.h"
 #include "gui/widgets/filechooser.h"
 
+class AccountWidget;
+
 class GamePage : public ConfigurationPage{
 Q_OBJECT
 public:
@@ -23,6 +25,9 @@ public:
     QIcon icon() override;
     void apply() override;
     void load() override;
+
+    // Re-reads the saved sign-in (for example after atw-launch signed in).
+    void refreshAccount();
 
 private:
     QSlider* memorySlider;
@@ -36,6 +41,7 @@ private:
 #endif
     QCheckBox* closeOnLaunch;
     QPlainTextEdit* jvmArgs;
+    AccountWidget* account;
 };
 
 #endif // LUNAR_CLIENT_QT_GAMEPAGE_H

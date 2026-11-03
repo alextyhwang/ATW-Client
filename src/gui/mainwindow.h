@@ -6,7 +6,6 @@
 #define LUNAR_CLIENT_QT_MAINWINDOW_H
 
 #include <QMainWindow>
-#include "widgets/customtabwidget.h"
 #include <QPushButton>
 #include <QTimer>
 #include <QStandardPaths>
@@ -24,16 +23,36 @@
 #include "updater/updatechecker.h"
 #endif
 
+class QLabel;
+class QStackedWidget;
+class CustomTabBar;
+class LaunchButton;
+class WindowFrame;
+
 class MainWindow : public QMainWindow {
 Q_OBJECT
 public:
     explicit MainWindow(QWidget* parent = nullptr);
+    ~MainWindow() override;
+
+protected:
+    void resizeEvent(QResizeEvent* event) override;
 
 private:
     void launchOrEndProcess();
     void closeEvent(QCloseEvent* closeEvent) override;
     void apply();
     void load();
+    void showStatus(const QString& message, bool error = false, int timeoutMs = 6000);
+    void positionToast();
+    void fitToScreen();
+    void showLogs();
+#ifdef ATW_CONFIG_ONLY
+    // atw-config starts the canonical launcher, which owns sign-in and launch.
+    bool startLauncherHandoff();
+    void pollHandoff();
+    void endHandoffTracking();
+#endif
 private slots:
     void resetLaunchButtons();
     void updateLaunchButtonState();
@@ -44,14 +63,24 @@ private slots:
     void noUpdatesAvailable();
 #endif
 private:
-    CustomTabWidget* tabWidget;
-    QPushButton* launchButton;
+    WindowFrame* frame = nullptr;
+    CustomTabBar* tabBar = nullptr;
+    QStackedWidget* pageStack = nullptr;
+    LaunchButton* launchButton = nullptr;
+    QLabel* toast = nullptr;
+    QTimer* toastTimer = nullptr;
 
     QList<ConfigurationPage*> pages;
 
     OfflineLauncher offlineLauncher;
     LogsPage* logsPage = nullptr;
     QTimer* processCheckTimer = nullptr;
+
+#ifdef ATW_CONFIG_ONLY
+    qint64 handoffPid = 0;
+    void* handoffHandle = nullptr;   // Windows process handle while tracking
+    QTimer* handoffTimer = nullptr;
+#endif
 
     Config config;
 

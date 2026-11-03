@@ -127,6 +127,8 @@ set(ATW_CORE_SOURCES
 set(ATW_AUTH_UI_SOURCES
         src/auth/signindialog.cpp
         src/auth/signindialog.h
+        src/gui/style/atwtheme.cpp
+        src/gui/style/atwtheme.h
 )
 
 set(ATW_WIDGET_UI_SOURCES
@@ -153,8 +155,14 @@ set(ATW_WIDGET_UI_SOURCES
         src/gui/widgets/customtitlebar.h
         src/gui/widgets/customtabbar.cpp
         src/gui/widgets/customtabbar.h
-        src/gui/widgets/customtabwidget.cpp
-        src/gui/widgets/customtabwidget.h
+        src/gui/widgets/launchbutton.cpp
+        src/gui/widgets/launchbutton.h
+        src/gui/widgets/pixelslider.cpp
+        src/gui/widgets/pixelslider.h
+        src/gui/widgets/pixeltoggle.cpp
+        src/gui/widgets/pixeltoggle.h
+        src/gui/widgets/windowframe.cpp
+        src/gui/widgets/windowframe.h
         src/gui/widgets/widgetutils.cpp
         src/gui/widgets/widgetutils.h
         src/buildconfig.h
