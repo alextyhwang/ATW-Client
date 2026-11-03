@@ -41,8 +41,15 @@ After building and auditing a credential-free package:
 python3 -B scripts/relocate_mac_qt.py /path/to/prepared-package
 python3 -B scripts/create_mac_app.py \
   --package /path/to/prepared-package \
-  --output '/path/to/release/ATW Client.app'
+  --output '/path/to/release/ATW Client.app' \
+  --archive '/path/to/release/ATW-Client-Mac-arm64.zip'
 ```
+
+The archive option waits for macOS `ditto`, checks the ZIP central directory and
+every entry's CRC, then atomically creates the final ZIP filename. Failed or
+interrupted archives never receive that filename. Generate the SHA-256 and
+upload only after this command exits successfully; a checksum alone can also
+describe a truncated ZIP and does not prove archive integrity.
 
 The app seeds a private writable installation beneath
 `~/Library/Application Support/ATW Client`. Microsoft sign-in is performed on

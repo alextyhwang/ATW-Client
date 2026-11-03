@@ -7,6 +7,8 @@ import sys
 import signal
 import time
 import unittest
+from unittest import mock
+import zipfile
 
 
 spec = importlib.util.spec_from_file_location(
@@ -63,6 +65,37 @@ class MacAppTests(unittest.TestCase):
         for path in (destination, self.package / "nested.app"):
             with self.assertRaises(ValueError):
                 app.create_app(self.package, path)
+
+    def test_archive_is_visible_only_after_successful_validation(self):
+        bundle = self.root / "release.app"
+        app.create_app(self.package, bundle)
+        destination = self.root / "release.zip"
+
+        def ditto(command, check):
+            self.assertTrue(check)
+            self.assertFalse(destination.exists())
+            with zipfile.ZipFile(command[-1], "w") as archive:
+                archive.writestr("release.app/Contents/Info.plist", "plist")
+
+        with mock.patch.object(app.subprocess, "run", side_effect=ditto):
+            app.create_archive(bundle, destination)
+        with zipfile.ZipFile(destination) as archive:
+            self.assertIsNone(archive.testzip())
+        self.assertEqual(list(self.root.glob(".atw-archive-*")), [])
+
+    def test_truncated_archive_never_gets_release_filename(self):
+        bundle = self.root / "release.app"
+        app.create_app(self.package, bundle)
+        destination = self.root / "release.zip"
+
+        def ditto(command, check):
+            Path(command[-1]).write_bytes(b"PK\x03\x04incomplete")
+
+        with mock.patch.object(app.subprocess, "run", side_effect=ditto):
+            with self.assertRaises(zipfile.BadZipFile):
+                app.create_archive(bundle, destination)
+        self.assertFalse(destination.exists())
+        self.assertEqual(list(self.root.glob(".atw-archive-*")), [])
 
 
 @unittest.skipUnless(sys.platform == "darwin", "runs the real macOS bootstrap")

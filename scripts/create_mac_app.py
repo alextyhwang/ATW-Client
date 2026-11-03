@@ -15,6 +15,9 @@ from pathlib import Path
 import plistlib
 import shutil
 import stat
+import subprocess
+import tempfile
+import zipfile
 
 
 PRIVATE_NAMES = {
@@ -180,13 +183,44 @@ def create_app(package, output):
     return release_id
 
 
+def create_archive(app, output):
+    """Publish a ZIP name only after ditto exits and every entry passes CRC."""
+    app = app.resolve(strict=True)
+    output = output.absolute()
+    if output.suffix != ".zip" or output.exists() or output.is_symlink():
+        raise ValueError("Choose a new .zip output path")
+    if app.suffix != ".app" or not app.is_dir():
+        raise ValueError("Archive input must be an existing .app directory")
+    if app in output.resolve().parents:
+        raise ValueError("Archive output must be outside the app")
+    # Same directory keeps the final hard link on one filesystem.
+    with tempfile.TemporaryDirectory(prefix=".atw-archive-", dir=output.parent) as scratch:
+        staging = Path(scratch) / "archive.partial"
+        subprocess.run(["/usr/bin/ditto", "-c", "-k", "--sequesterRsrc", "--keepParent",
+                        str(app), str(staging)], check=True)
+        with zipfile.ZipFile(staging) as archive:
+            if app.name + "/Contents/Info.plist" not in archive.namelist():
+                raise ValueError("Archive is missing the app bundle")
+            bad_entry = archive.testzip()
+            if bad_entry is not None:
+                raise ValueError(f"Archive CRC failure: {bad_entry}")
+        # Refuse replacement if another publisher produced the destination.
+        os.link(staging, output)
+    return output
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--package", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--archive", type=Path,
+                        help="Create and CRC-verify a new release ZIP atomically (macOS only)")
     args = parser.parse_args()
     release_id = create_app(args.package, args.output)
     print(f"Created {args.output}; private package ID {release_id}")
+    if args.archive:
+        create_archive(args.output, args.archive)
+        print(f"Verified release archive {args.archive}")
 
 
 if __name__ == "__main__":
