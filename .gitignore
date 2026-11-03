@@ -282,3 +282,5 @@ secrets.*
 /.lunarclient/
 /.minecraft/
 /.weave/
+__pycache__/
+*.py[cod]

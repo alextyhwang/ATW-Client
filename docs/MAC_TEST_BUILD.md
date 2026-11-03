@@ -1,8 +1,8 @@
 # Preparing the private Mac test configuration
 
-Source implementation only, 2026-10-06. No Mac is accessible, and no preparation
-script, compiler, test, game or benchmark has been run. The transfer kit is a
-source/configuration deliverable, not a runnable Mac release. Lunar Client,
+The October 2026 transfer kit is a source/configuration deliverable, not a
+runnable Mac release. Mac execution work began on 2026-11-02; consult
+MAC_TEST_READY.md for the current qualification status. Lunar Client,
 Weave 1.4.1, Minecraft 1.8.9, Java 17 and the complete OpenGL renderer remain
 mandatory. No Metal mode is provided.
 
@@ -74,8 +74,10 @@ Supply these real local inputs before preparation:
   `bin/javac`, and `bin/jar`. A vendor `.jdk` typically uses `Contents/Home`.
 - The actual Mac Lunar data root with `offline/multiver`, Lunar/Genesis and
   OptiFine 1.8 jars, and exactly one selected-architecture Mac `v1_8` native ZIP.
-  The inventory gate requires architecture-correct LWJGL, OpenAL, JInput and
-  JNA. A Windows ZIP renamed to look like a Mac ZIP fails inspection.
+  The inventory gate requires architecture-correct LWJGL and OpenAL. Optional
+  JInput/JNA libraries are validated when present; stock Lunar arm64 omits them.
+  The audio helper is validated as a Mach-O executable. A renamed Windows ZIP
+  fails inspection.
 - The actual Mac Minecraft **parent**, containing `lunarclient/`,
   `assets/objects/`, and `assets/indexes/1.8.json`. Optional `libraries/` and
   `versions/` are copied beside the game. If local data has another layout,
@@ -159,12 +161,13 @@ produce a failed private build log rather than fallback to a Windows cache.
 The build sequence is fixed:
 
 1. Complete input/hash checks and the compatible native inventory gate.
-2. Run each fresh RawInput/Render Boost wrapper with `assemble`, `-x test`,
+2. Retain every selected mod jar byte-for-byte by default. Only when explicitly
+   passed `--rebuild-mods`, run each fresh RawInput/Render Boost wrapper with `assemble`, `-x test`,
    `-x check`, no daemon/build cache, two workers, and only the copied Java 17
    toolchain. Private capture gates are set to public/off to avoid reading
    historical pointers during Gradle configuration. No Gradle `build`, test
    suite, CTest, game launch or benchmark is requested.
-3. Inspect each output jar's Minecraft/MCP metadata, Java class version and
+3. When rebuilding mods, inspect each output jar's Minecraft/MCP metadata, Java class version and
    API linkage. Replace only those two entries in the **new copied selection**,
    retaining their original `.jar`/`.jar.disabled` state. Create
    `candidate-payload-manifest.json` with original/candidate hashes and
@@ -177,7 +180,9 @@ The build sequence is fixed:
    original selection. Verify preserved mod settings/cache and visual files.
 6. Call `create_mac_bundle.py` with the prepared `cmake-build`, new package
    output, selected architecture and **candidate** manifest. Its `lipo`/bundle
-   checks run only in this explicit mode. Recheck staged hashes/settings and
+   checks run only in this explicit mode. Run `relocate_mac_qt.py` to remove
+   build-host Qt dependencies and audit the deployed native libraries.
+   Recheck staged hashes/settings and
    write `built-and-staged-unqualified` status. No app is opened.
 
 Failures retain only partial **new** outputs for inspection. The driver never

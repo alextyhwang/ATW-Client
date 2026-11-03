@@ -15,7 +15,8 @@ bool inspectMacJava17(const QString& executable, const Platform& platform, QStri
 
 // Bounded classic ZIP reader: stored/deflated regular files only, no ZIP64,
 // encryption, links or unsafe paths. Content identity includes the extraction
-// policy, platform and game version. Cache reuse rechecks every file's bytes.
+// policy, platform and game version. Cache reuse rechecks every file's bytes
+// and the recognized Mac audio helper's executable permission.
 bool prepareNativeArchive(const QString& archive, const QString& packageRoot,
                           const Platform& platform, const QString& version,
                           QString* directory, QString* error);

@@ -57,15 +57,44 @@ bool writeJsonFile(const QString& path, const QJsonObject& object, QString* erro
 }
 
 #ifdef Q_OS_MACOS
-constexpr char keychainMarker[] = "keychain-v1";
+constexpr char legacyKeychainMarker[] = "keychain-v1";
+constexpr char keychainMarkerPrefix[] = "keychain-v2:";
 
-void clearKeychainSecret() {
+QByteArray uniqueKeychainAccount(const QByteArray& marker) {
+    const QByteArray prefix(keychainMarkerPrefix);
+    if (!marker.startsWith(prefix) || marker.size() != prefix.size() + 32)
+        return {};
+    const QByteArray id = marker.mid(prefix.size());
+    for (const char character : id)
+        if (!((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f')))
+            return {};
+    return QByteArray("microsoft-refresh-token-") + id;
+}
+
+CFMutableDictionaryRef keychainQuery(const QByteArray& marker) {
+    const bool legacy = marker == QByteArray(legacyKeychainMarker);
+    const QByteArray account = legacy ? QByteArray("microsoft-refresh-token") : uniqueKeychainAccount(marker);
+    if (account.isEmpty())
+        return nullptr;
     const CFMutableDictionaryRef query = CFDictionaryCreateMutable(
         kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks,
         &kCFTypeDictionaryValueCallBacks);
+    const CFStringRef accountName = CFStringCreateWithBytes(kCFAllocatorDefault,
+        reinterpret_cast<const UInt8*>(account.constData()), account.size(), kCFStringEncodingUTF8, false);
     CFDictionarySetValue(query, kSecClass, kSecClassGenericPassword);
-    CFDictionarySetValue(query, kSecAttrService, CFSTR("com.alextyhwang.atw-client.account.v1"));
-    CFDictionarySetValue(query, kSecAttrAccount, CFSTR("microsoft-refresh-token"));
+    CFDictionarySetValue(query, kSecAttrService, legacy
+        ? CFSTR("com.alextyhwang.atw-client.account.v1") : CFSTR("com.alextyhwang.atw-client.account.v2"));
+    CFDictionarySetValue(query, kSecAttrAccount, accountName);
+    CFRelease(accountName);
+    return query;
+}
+
+void clearReferencedKeychainSecret(const QByteArray& marker) {
+    // Legacy v1 was shared by every package. It remains read-only because
+    // deleting it could invalidate another installation or a copied package.
+    if (uniqueKeychainAccount(marker).isEmpty())
+        return;
+    const CFMutableDictionaryRef query = keychainQuery(marker);
     SecItemDelete(query);
     CFRelease(query);
 }
@@ -105,6 +134,10 @@ AccountStore::LoadStatus AccountStore::load(SavedAccount& saved) {
 }
 
 bool AccountStore::save(const SavedAccount& saved, QString* error) {
+#ifdef Q_OS_MACOS
+    const QByteArray previous = QByteArray::fromBase64(
+        readJsonFile(accountFilePath())["secret"].toString().toLatin1());
+#endif
     const MinecraftAccount& account = saved.account;
     const QJsonObject secret{
         {"uuid", account.uuid},
@@ -126,7 +159,18 @@ bool AccountStore::save(const SavedAccount& saved, QString* error) {
         {"clientId", saved.clientId},
         {"name", account.name},
         {"secret", QString::fromLatin1(encrypted.toBase64())}};
+#ifdef Q_OS_MACOS
+    if (!writeJsonFile(accountFilePath(), file, error)) {
+        clearReferencedKeychainSecret(encrypted);
+        return false;
+    }
+    // QSaveFile committed the new reference. A failed Lunar account write
+    // must not discard the secret now referenced by account.dat.
+    clearReferencedKeychainSecret(previous);
+    return writeLunarAccount(saved, error);
+#else
     return writeJsonFile(accountFilePath(), file, error) && writeLunarAccount(saved, error);
+#endif
 }
 
 bool AccountStore::writeLunarAccount(const SavedAccount& saved, QString* error) {
@@ -167,9 +211,13 @@ QJsonObject AccountStore::lunarAccountEntry(const SavedAccount& saved) {
 
 void AccountStore::signOut() {
 #ifdef Q_OS_MACOS
-    clearKeychainSecret();
-#endif
+    const QByteArray marker = QByteArray::fromBase64(
+        readJsonFile(accountFilePath())["secret"].toString().toLatin1());
+    if (QFile::remove(accountFilePath()))
+        clearReferencedKeychainSecret(marker);
+#else
     QFile::remove(accountFilePath());
+#endif
 
     const QString path = FS::getLunarAccountsPath();
     QJsonObject root = readJsonFile(path);
@@ -236,32 +284,23 @@ QByteArray AccountStore::unprotect(const QByteArray& encrypted) {
 QByteArray AccountStore::protect(const QByteArray& plain) {
     if (plain.isEmpty())
         return {};
-    clearKeychainSecret();
+    const QByteArray marker = QByteArray(keychainMarkerPrefix)
+        + QUuid::createUuid().toString(QUuid::Id128).toLatin1();
     const CFDataRef value = CFDataCreate(kCFAllocatorDefault,
         reinterpret_cast<const UInt8*>(plain.constData()), plain.size());
-    const CFMutableDictionaryRef item = CFDictionaryCreateMutable(
-        kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks,
-        &kCFTypeDictionaryValueCallBacks);
-    CFDictionarySetValue(item, kSecClass, kSecClassGenericPassword);
-    CFDictionarySetValue(item, kSecAttrService, CFSTR("com.alextyhwang.atw-client.account.v1"));
-    CFDictionarySetValue(item, kSecAttrAccount, CFSTR("microsoft-refresh-token"));
+    const CFMutableDictionaryRef item = keychainQuery(marker);
     CFDictionarySetValue(item, kSecAttrAccessible, kSecAttrAccessibleWhenUnlocked);
     CFDictionarySetValue(item, kSecValueData, value);
     const OSStatus status = SecItemAdd(item, nullptr);
     CFRelease(item);
     CFRelease(value);
-    return status == errSecSuccess ? QByteArray(keychainMarker) : QByteArray();
+    return status == errSecSuccess ? marker : QByteArray();
 }
 
 QByteArray AccountStore::unprotect(const QByteArray& encrypted) {
-    if (encrypted != QByteArray(keychainMarker))
+    const CFMutableDictionaryRef query = keychainQuery(encrypted);
+    if (!query)
         return {};
-    const CFMutableDictionaryRef query = CFDictionaryCreateMutable(
-        kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks,
-        &kCFTypeDictionaryValueCallBacks);
-    CFDictionarySetValue(query, kSecClass, kSecClassGenericPassword);
-    CFDictionarySetValue(query, kSecAttrService, CFSTR("com.alextyhwang.atw-client.account.v1"));
-    CFDictionarySetValue(query, kSecAttrAccount, CFSTR("microsoft-refresh-token"));
     CFDictionarySetValue(query, kSecReturnData, kCFBooleanTrue);
     CFTypeRef result = nullptr;
     const OSStatus status = SecItemCopyMatching(query, &result);
@@ -269,10 +308,10 @@ QByteArray AccountStore::unprotect(const QByteArray& encrypted) {
     if (status != errSecSuccess || !result)
         return {};
     const CFDataRef value = static_cast<CFDataRef>(result);
-    const QByteArray result(reinterpret_cast<const char*>(CFDataGetBytePtr(value)),
+    const QByteArray plaintext(reinterpret_cast<const char*>(CFDataGetBytePtr(value)),
         int(CFDataGetLength(value)));
     CFRelease(value);
-    return result;
+    return plaintext;
 }
 #else
 // No OS-backed secret store is wired up outside Windows or macOS.

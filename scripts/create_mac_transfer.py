@@ -12,7 +12,8 @@ import zipfile
 
 
 ROOT_FILES = ("CMakeLists.txt", "buildconfig.cpp.in", "config.json", "res.qrc", "LICENSE", "AGENTS.md", "MODS.md")
-SCRIPTS = ("create_mac_bundle.py", "prepare_mac_test.py", "inventory_mac_runtime.py", "create_mac_transfer.py")
+SCRIPTS = ("create_mac_bundle.py", "prepare_mac_test.py", "inventory_mac_runtime.py", "create_mac_transfer.py",
+           "create_mac_app.py", "relocate_mac_qt.py")
 DOCS = ("PORTABLE.md", "MAC_PACKAGE.md", "MAC_IMPLEMENTATION_TASKS.md", "MAC_NATIVE_IMPLEMENTATION.md",
         "MAC_INPUT_IMPLEMENTATION.md", "MAC_RENDER_INTEGRATION.md", "MAC_TEST_BUILD.md",
         "MAC_RUNTIME_INVENTORY.md", "MAC_TEST_CONFIGURATION.md", "MAC_TEST_READY.md")

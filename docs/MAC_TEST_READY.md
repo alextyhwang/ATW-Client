@@ -1,78 +1,58 @@
-# ATW Mac test transfer
+# ATW Client for Apple Silicon
 
-This is a private source/configuration kit for your Mac, not a runnable Mac
-release. It keeps Lunar Client, Weave 1.4.1, Minecraft 1.8.9, Java 17 and the
-existing OpenGL renderer. Metal remains gated on actual Lunar integration and
-depth/stencil/state coverage. No FPS or runtime-parity result is claimed.
+The Mac branch packages the current ATW launcher, pinned Lunar Minecraft 1.8.9,
+Weave 1.4.1, selected deployed mods, settings, resource packs, Java 17 and Qt.
+It uses OpenGL. Experimental `macInputContinuity` stays disabled. The target is
+Apple Silicon on macOS 14.4 or newer; this is not an Intel Mac package.
 
-The launcher template retains your saved 4067 MiB heap, 1000 FPS cap and
-2560x1440 window. Automatic launch and the experimental Mac input continuity
-provider are OFF. Selected deployed mods remain selected; the Mac build replaces
-only RawInput and Render Boost with unqualified source candidates. LevelHead
-keeps its deployed jar. Game options, resource packs and reviewed Lunar/LevelHead
-visual preferences accompany the kit. Accounts and API credentials do not.
+## Current qualification
 
-The Lunar subset includes profile selection and reviewed controls, general,
-mod/HUD and performance fields. Social/account data, macros, diagnostics and
-unknown fields are omitted; the kit is not a complete profile backup. Review
-the selected profile and its visuals on the Mac before judging parity.
+As of 2026-11-02, both native arm64 launchers compile on the M2 Pro. The prepared
+candidate retains the selected deployed jars without rebuilding mods. Compared
+with the current Windows portable release, all 738 game/resource files and all
+43 Lunar profile files match byte for byte. Selected Weave runtime/mod files
+also match; only a nonruntime mods README is omitted. Launcher settings differ
+only in the Mac Java path, automatic-launch flag and input-continuity flag.
+All 23 other Lunar JARs match the portable release hashes. The rebuilt
+`lunar.jar` has the same 11,196 entries and identical entry contents; only its
+ZIP container bytes differ. This retains the pinned Lunar build.
 
-## On your Mac
+Native archive admission and extraction tests pass for the stock Lunar arm64
+archive, including audio-helper permissions and cache validation. Mock Keychain
+tests cover package isolation, failed saves and scoped sign-out without reading
+or changing the user's login Keychain. Windows release and Lunar account
+contract regressions pass.
 
-1. Extract the ZIP into a writable directory. Keep `source`, `payload`,
-   `visual-baseline` and `selected-payload-manifest.json` together.
-2. Supply a native arm64 Java **17 JDK**, your actual Mac Lunar 1.8.9 data,
-   Minecraft assets/game data, and a matching Qt installation. Python 3.9+,
-   CMake 3.21+, the Apple C++/make toolchain and zlib development files are
-   needed for the build. Use real paths, not symlink aliases.
-3. From the extracted kit directory, replace every `/actual/...` path below
-   with your local path. Work/output parent directories must exist; the two
-   named destinations must be new and outside all inputs.
+Qt relocation, the final single-app wrapper and offline Java/Minecraft startup
+have passed on the M2 Pro. The private release is
+[ATW Client Mac arm64 v20261103](https://github.com/alextyhwang/ATW-Client-Portable/releases/tag/mac-v20261103).
+No Mac multiplayer, visual/input parity or FPS result is claimed. A build-only
+success is not evidence of multiplayer compatibility.
+
+## Packaging
+
+The build procedure is in [MAC_TEST_BUILD.md](MAC_TEST_BUILD.md). It takes an
+explicit pinned payload and Mac-native runtime inputs; users of the finished
+app do not need a preinstalled Lunar client, Java, Qt or developer tools.
+
+After building and auditing a credential-free package:
 
 ```sh
-python3 -B source/scripts/prepare_mac_test.py \
-  --source-root "$PWD/source" \
-  --baseline-root "$PWD/payload" \
-  --payload-manifest "$PWD/selected-payload-manifest.json" \
-  --launcher-settings "$PWD/source/config/mac-test-settings.json" \
-  --visual-baseline "$PWD/visual-baseline" \
-  --java-home "/actual/Java17.jdk/Contents/Home" \
-  --lunar-data "/actual/mac/.lunarclient" \
-  --minecraft-parent "/actual/private-minecraft-parent" \
-  --qt-prefix "/actual/Qt/prefix" \
-  --arch arm64 \
-  --work-root "/actual/mac-work/atw-001" \
-  --output "/actual/mac-packages/atw-001" \
-  --build
+python3 -B scripts/relocate_mac_qt.py /path/to/prepared-package
+python3 -B scripts/create_mac_app.py \
+  --package /path/to/prepared-package \
+  --output '/path/to/release/ATW Client.app'
 ```
 
-The Minecraft parent must contain `lunarclient/`, `assets/objects/` and
-`assets/indexes/1.8.json`. The Lunar root must contain `offline/multiver` and
-the real architecture-compatible Mac native archive. See
-`source/docs/MAC_TEST_BUILD.md` for the full input contract and troubleshooting.
+The app seeds a private writable installation beneath
+`~/Library/Application Support/ATW Client`. Microsoft sign-in is performed on
+the destination Mac. Refresh secrets are stored in that user's Keychain;
+account files and tokens must never be included in the download.
 
-Omit `--build` for preparation and static native inventory only. To build later,
-repeat with new work/output names and `--build`. The build excludes test suites
-and does not open the game. Fresh Gradle dependency downloads may be required.
-Inspect `PREPARATION-STATUS.json` and private logs in the work directory.
+Runtime downloads belong only in the private
+[ATW-Client-Portable releases](https://github.com/alextyhwang/ATW-Client-Portable/releases).
+Sign in to GitHub with an account that has access. The source repository is
+public and must not contain the packaged Lunar/Minecraft runtime.
 
-Authentication is local to the eventual package. On macOS, the refresh secret
-is stored in the signed-in user's Keychain; `config/account.dat` contains only
-account metadata and a keychain marker. Copying the package to another Mac
-requires signing in again. If needed, explicitly add
-`--account-snapshot /actual/private/accounts.json` on your Mac; no account is
-discovered or imported automatically. Keep that resulting package private.
-
-## Qualification still required
-
-No Mac compilation, game launch, benchmark or test suite was run in this
-Windows workspace. The source and configuration are prepared for transfer;
-successful compilation, native dependencies, Weave bootstrap, input behavior,
-visual parity and relocation remain to be checked on your Mac. Begin with the
-complete GL path and `macInputContinuity: false`. The optional continuity
-provider is not a native raw-input implementation. There is no Metal switch.
-
-The kit includes a per-file `TRANSFER-MANIFEST.json` and a ZIP SHA-256 sidecar.
-It excludes the copied Windows build caches, account snapshots, private capture
-data and the repository's `.git` directory. Keep it private: its runtime jars
-and personal display/profile preferences are intended for your own transfer.
+The older October transfer kit is a developer input, not the finished app.
+Metal implementation documents remain research; this package has no Metal mode.

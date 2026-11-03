@@ -1,10 +1,11 @@
 # Read-only Mac runtime artifact inventory
 
-2026-10-06. Source implementation for the approved Mac test configuration in
-`ATW-Client-Mac-Metal`, branch `mac/metal-lunar-weave-1.8.9`. This increment owns
-only this document and [inventory_mac_runtime.py](../scripts/inventory_mac_runtime.py).
-It preserves the copied baseline, deployed jars and settings. The central
-implementation ledger, C++ admission, CMake and Config are outside this task.
+2026-10-06, updated 2026-11-02 after read-only inspection of actual Mac artifacts.
+Source implementation for the approved Mac test configuration in
+`ATW-Client-Mac-Metal`, branch `mac/metal-lunar-weave-1.8.9`. The original increment
+introduced this document and [inventory_mac_runtime.py](../scripts/inventory_mac_runtime.py).
+It preserves the copied baseline, deployed jars and settings. The November
+correction also aligns C++ archive admission and helper extraction permissions.
 
 The script inspects explicitly supplied **Mac Java 17** and **Lunar native
 archives**, including when those files are stored on Windows. It uses Python
@@ -133,12 +134,32 @@ unsafe or bounded-out archives block the overall inventory as incomplete.
 
 Mac archive admission requires flat `.dylib`/`.jnilib` members with a valid
 selected 64-bit `MH_DYLIB` slice. DLL suffixes, SO suffixes, PE or ELF bytes
-fail. Required family evidence uses the launcher's case-insensitive basename
+fail. Family evidence uses the launcher's case-insensitive basename
 substrings: `lwjgl`, `openal`, `jinput`, `jnidispatch` (reported as `jna`). A
 filename alone never supplies evidence: its binary must pass the selected slice
-and flat-layout checks. These four families are minimum evidence, not an
-exhaustive native dependency manifest, a JNI export check or proof that the
-LWJGL API version is correct. Do not supply arbitrary LWJGL 3 substitutes.
+and flat-layout checks. Only `lwjgl` and `openal` are required. Absent `jinput`
+and `jna` remain visible in `missingFamilies` without blocking admission;
+optional native libraries must pass all checks when present. This is minimum
+evidence, not an exhaustive native dependency manifest, a JNI export check or
+proof that the LWJGL API version is correct. Do not supply arbitrary LWJGL 3
+substitutes or borrow newer JNA libraries merely to satisfy a family name.
+
+The recognized flat member `rewind-audio-helper` is inspected as a matching
+64-bit `MH_EXECUTE`, not a dylib. Other Mach-O members without a recognized
+library suffix remain rejected. The launcher grants this validated helper
+executable permission and checks that permission on cache reuse. Mac extraction
+uses policy v2; Windows retains policy v1.
+
+The inspected stock `client-natives-macos-aarch64-v1_8.zip` has SHA-256
+`24b42ba49b04a477bc1f30aa8978d9e61bff2aa8864f004414321482dc85f517` and contains
+`libjcocoa.dylib`, `liblwjgl.dylib`, `libopenalsoft.dylib`,
+`libwebp-imageio64.dylib` and `rewind-audio-helper`. All four dylibs and the
+helper have structurally valid generic arm64 slices. JInput/JNA are absent.
+The installed Minecraft JInput 2.0.5 Mac native contains ppc/i386/x86_64 slices
+and cannot supply arm64. Existing Lunar LWJGL2 cache member-name inventories
+include JInput API/WinTab classes, no OSX plugin, and no `com.sun.jna` classes.
+These names support correcting archive admission; they do not prove which
+wrappers execute or qualify JNI compatibility. No game or JVM was launched.
 
 Mach-O supports both byte orders, thin and fat32/fat64 containers. Slice CPU,
 subtype, bitness, file type, offset and size are reported. Each slice's bounded
@@ -153,7 +174,7 @@ This inventory is deliberately conservative in several places beyond the
 current C++ check: it validates **every** fat member, table/member CPU agreement,
 nonoverlap, alignment, reserved fat64 fields and duplicate CPUs; rejects
 directory symlinks/junctions during Java traversal; rejects overlapping ZIP
-local ranges and Mach-O archive members lacking recognized library suffixes;
+local ranges;
 and applies total-work bounds across archives. It also refuses account/settings
 paths and named ZIP members (`accounts.json`, `settings.json`, or a `settings`
 component). These are explicit inventory restrictions, not changes to C++.
@@ -245,7 +266,7 @@ Each archive record has exactly:
 | `size`, `sha256` | compressed archive byte count integer and hash string, or null before a successful read |
 | `entryCount`, `expandedBytes` | integers or null before complete ZIP decoding; includes directories/metadata in entry count, metadata in expanded total |
 | `binaries` | binary record array in central-directory order |
-| `familiesPresent`, `missingFamilies` | arrays of canonical family names `lwjgl`, `openal`, `jinput`, `jna`, based on valid flat selected dylibs |
+| `familiesPresent`, `missingFamilies` | arrays of canonical family names `lwjgl`, `openal`, `jinput`, `jna`, based on valid flat selected dylibs; only missing `lwjgl`/`openal` block admission |
 | `compatible` | boolean; archive content checks, independently of naming eligibility |
 | `diagnostics` | diagnostic array |
 
@@ -270,7 +291,7 @@ and may contain OS error text. Code values are:
 binary_structure, binary_mismatch
 java_home, java_release, java_binary, java_read, java_tree, java_core_missing
 archive_read_or_structure, foreign_binary, native_layout_or_slice,
-native_suffix, native_families_missing
+native_suffix, native_helper, native_families_missing
 native_selection, selected_archive_incompatible, inventory_incomplete,
 lunar_root_or_inventory
 ```
@@ -292,9 +313,18 @@ branch and the two new owned paths were confirmed. Functional
 fixtures, this inventory's execution, builds, tests, toolchain invocation,
 runtime jar refresh, Java/game launches and benchmarks remain deferred.
 
-No actual Mac binary evidence was supplied or inspected by this task. The
-implemented script is ready for later read-only artifact inspection; no real
-inventory result or compatible package is claimed. Later work must qualify
+The original October implementation had no Mac binary evidence. November's
+read-only inspection established the stock archive layout described above.
+Synthetic ZIP/Mach-O regression tests run with
+`python -B -m unittest discover -s scripts/tests -p test_inventory_mac_runtime.py -v`.
+All four tests passed on Windows and Mac. The corrected full inventory passed
+against the inspected stock Mac Lunar root and staged Mac Java 17 home.
+The standalone [C++ extraction test](../scripts/tests/nativeinspection_smoke.cpp)
+compiled with Apple Clang and staged Qt 6.12.0; against the stock archive it
+passed extraction, executable helper permission, cache reuse and permission-loss
+rejection. It accepts an archive path and an existing scratch parent, creates
+only a temporary package there, and never starts Java or the helper.
+No runnable or runtime-qualified package is claimed. Later work must qualify
 parser fixtures, actual Java/Lunar binaries and JNI dependencies, exact loaded
 classes/libraries, Weave/mod pins, launcher process and executable permissions,
 Mac deployment/relocation and complete input/visual parity. This report cannot

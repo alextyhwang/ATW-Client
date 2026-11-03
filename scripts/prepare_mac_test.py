@@ -480,6 +480,8 @@ def main():
                         help="Reviewed Mac launcher JSON; defaults to baseline config, then source/config/mac-test-settings.json")
     parser.add_argument("--arch", required=True, choices=tuple(CPU))
     parser.add_argument("--build", action="store_true", help="Explicitly run fresh compiler/deployment/staging work")
+    parser.add_argument("--rebuild-mods", action="store_true",
+                        help="Explicitly rebuild RawInput and Render Boost; --build retains selected jars by default")
     parser.add_argument("--mac-input-continuity", action="store_true", help="Opt into unqualified Mac input experiment")
     parser.add_argument("--account-snapshot", type=Path,
                         help="Explicit accounts.json file; no accounts are imported otherwise")
@@ -505,6 +507,7 @@ def main():
     require(not inside(work, output) and not inside(output, work), "Work/output directories must be disjoint")
     checked_file(source, "CMakeLists.txt")
     bundler = checked_file(source, "scripts/create_mac_bundle.py")
+    relocator = checked_file(source, "scripts/relocate_mac_qt.py")
     inventory = checked_file(source, "scripts/inventory_mac_runtime.py")
     archive = mac_inputs(java, lunar, minecraft, qt, args.arch)
     settings, extras = launcher_settings(settings_path, args.mac_input_continuity)
@@ -616,33 +619,36 @@ def main():
                TMPDIR=str(prepared / "data/tmp"), TMP=str(prepared / "data/tmp"), TEMP=str(prepared / "data/tmp"))
     candidate = copy.deepcopy(manifest)
     replacements = []
-    for module, name in CANDIDATES.items():
-        module_root = sources / module
-        module_home = module_root / ".build-home"
-        command = ["/bin/sh", str(module_root / "gradlew"), "-p", str(module_root), "assemble",
-                   "-x", "test", "-x", "check", "--no-daemon", "--max-workers=2", "--console=plain",
-                   "--no-build-cache", "-Duser.home=" + str(module_home),
-                   "-Dorg.gradle.jvmargs=-Xmx2G -Dfile.encoding=UTF-8",
-                   "-Dorg.gradle.java.installations.auto-detect=false",
-                   "-Dorg.gradle.java.installations.auto-download=false",
-                   "-Dorg.gradle.java.installations.fromEnv=JAVA_HOME",
-                   "-PterrainCaptureTests=public", "-PterrainRestartCaptureTests=off",
-                   "-PnameCaptureTests=public", "-PnamePrepIncomingTests=public",
-                   "-PnameCodecCaptureTests=public", "-PnameCodecStartupTests=off", "-PnameRestartCaptureTests=off"]
-        run(command, module_root, env, logs / (module + "-assemble.log"))
-        jar = checked_file(module_root, "build/libs/" + name)
-        jar_admission(jar)
-        entry = next(entry for entry in candidate["files"]
-                     if entry["path"] in (MODS + "/" + name, MODS + "/" + name + ".disabled"))
-        old_hash = entry["sha256"]
-        entry["sha256"] = sha256(jar)
-        replacements.append({"module": module, "path": entry["path"], "baselineSha256": old_hash,
-                             "candidateSha256": entry["sha256"], "runtimeQualified": False})
-        # These are new, workspace-owned destinations; no deployed files are replaced.
-        target = prepared / entry["path"]
-        shutil.copy2(jar, target)
-        shutil.copy2(jar, inputs / "mods" / target.name)
-    candidate.update(description="Unqualified Mac test candidates: RawInput and Render Boost only; all other deployed entries retained",
+    if args.rebuild_mods:
+        for module, name in CANDIDATES.items():
+            module_root = sources / module
+            module_home = module_root / ".build-home"
+            command = ["/bin/sh", str(module_root / "gradlew"), "-p", str(module_root), "assemble",
+                       "-x", "test", "-x", "check", "--no-daemon", "--max-workers=2", "--console=plain",
+                       "--no-build-cache", "-Duser.home=" + str(module_home),
+                       "-Dorg.gradle.jvmargs=-Xmx2G -Dfile.encoding=UTF-8",
+                       "-Dorg.gradle.java.installations.auto-detect=false",
+                       "-Dorg.gradle.java.installations.auto-download=false",
+                       "-Dorg.gradle.java.installations.fromEnv=JAVA_HOME",
+                       "-PterrainCaptureTests=public", "-PterrainRestartCaptureTests=off",
+                       "-PnameCaptureTests=public", "-PnamePrepIncomingTests=public",
+                       "-PnameCodecCaptureTests=public", "-PnameCodecStartupTests=off", "-PnameRestartCaptureTests=off"]
+            run(command, module_root, env, logs / (module + "-assemble.log"))
+            jar = checked_file(module_root, "build/libs/" + name)
+            jar_admission(jar)
+            entry = next(entry for entry in candidate["files"]
+                         if entry["path"] in (MODS + "/" + name, MODS + "/" + name + ".disabled"))
+            old_hash = entry["sha256"]
+            entry["sha256"] = sha256(jar)
+            replacements.append({"module": module, "path": entry["path"], "baselineSha256": old_hash,
+                                 "candidateSha256": entry["sha256"], "runtimeQualified": False})
+            # These are new, workspace-owned destinations; no deployed files are replaced.
+            target = prepared / entry["path"]
+            shutil.copy2(jar, target)
+            shutil.copy2(jar, inputs / "mods" / target.name)
+    candidate.update(description=("Unqualified Mac test candidates: RawInput and Render Boost only; all other deployed entries retained"
+                                   if args.rebuild_mods else
+                                   "Mac C++ package using the selected deployed mod jars; no mod rebuild requested"),
                      baselineManifestSha256=sha256(manifest_path), candidateReplacements=replacements,
                      runtimeQualified=False)
     candidate_path = work / "candidate-payload-manifest.json"
@@ -653,6 +659,7 @@ def main():
     cmake = shutil.which("cmake")
     command = [cmake, "-S", str(source), "-B", str(prepared), "-G", "Unix Makefiles",
                "-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_OSX_ARCHITECTURES=" + args.arch,
+               "-DCMAKE_OSX_DEPLOYMENT_TARGET=14.4",
                "-DCMAKE_PREFIX_PATH=" + str(qt), "-DATW_BUILD_LEGACY_TARGETS=OFF", "-DINCLUDE_UPDATER=OFF",
                "-DATW_JAVA_RUNTIME_SOURCE=" + str(inputs / "java"),
                "-DATW_LUNAR_DATA_SOURCE=" + str(inputs / "lunar"),
@@ -675,6 +682,7 @@ def main():
     if account:
         bundle_command.append("--include-account")
     run(bundle_command, work, env, logs / "bundle.log")
+    run([sys.executable, str(relocator), str(output)], work, env, logs / "relocate-qt.log")
     verify_selection(output, candidate_selection)
     verify_state(output, preserved_state)
     verify_visuals(output, visual_files, visual_preferences)

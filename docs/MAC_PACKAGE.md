@@ -1,5 +1,10 @@
 # Mac package source foundation
 
+Historical implementation notes from October 2026. For the current native
+build, single-app wrapper and qualification results, use
+[MAC_TEST_READY.md](MAC_TEST_READY.md). The layout below is the inner package;
+the distribution wrapper installs it into Application Support.
+
 Implementation began with approval on 2026-10-06. This document describes
 source changes, not a built or qualified Mac release. No compiler, test suite,
 game launch or benchmark was run. The complete Lunar OpenGL renderer remains

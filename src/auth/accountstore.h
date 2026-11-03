@@ -1,6 +1,7 @@
 //
-// Saved Microsoft sign-in. The refresh token lives only in config/account.dat,
-// encrypted with Windows DPAPI for the current Windows user. Lunar's
+// Saved Microsoft sign-in. Windows DPAPI encrypts config/account.dat for the
+// current Windows user; Mac stores the secret in Keychain and a reference in
+// account.dat. Lunar's
 // accounts.json receives only the short-lived Minecraft token.
 //
 

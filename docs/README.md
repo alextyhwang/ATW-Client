@@ -12,7 +12,7 @@ you need their evidence; this directory is not a collection to load wholesale.
 | Performance defaults and qualification | [Render Boost status](../ATW_RENDER_BOOST.md) |
 | Weave changes and deployment | [Mod development](../MODS.md) |
 | Native architecture and deferred work | [Architecture status](../ARCHITECTURE_TODO.md) |
-| Apple-Silicon port and transfer build | [Mac test status](MAC_TEST_READY.md) |
+| Apple-Silicon app, download and build | [Mac status and download](MAC_TEST_READY.md) |
 
 ## Evidence and historical material
 
@@ -30,9 +30,8 @@ Follow the current summary's links to the report that answers your question.
 - Raw committed frame samples: [benchmarks/](benchmarks/).
 - Exploratory platform/API research: [research/](research/); not a platform roadmap.
 
-Mac documents describe the current source foundation and its qualification
-gates. They do not claim that a Windows-built package, copied Lunar payload or
-unverified Metal path runs on macOS.
+Mac status separates build, offline launch and multiplayer qualification.
+The Apple-Silicon package uses OpenGL; Metal research is historical evidence.
 
 Ignored `upgrade-work/` paths in older reports identify local evidence that may
 not exist in a fresh clone. They are not prerequisites for canonical builds.

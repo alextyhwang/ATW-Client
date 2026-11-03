@@ -125,6 +125,17 @@ struct Entry {
     QByteArray bytes;
 };
 
+bool isMacAudioHelper(const Entry& entry) {
+    return entry.name == QStringLiteral("rewind-audio-helper");
+}
+
+bool hasMachOMagic(const QByteArray& bytes) {
+    if (bytes.size() < 4) return false;
+    const quint32 magic = word(bytes, 0, false);
+    return magic == 0xfeedface || magic == 0xcefaedfe || magic == 0xfeedfacf || magic == 0xcffaedfe
+            || magic == 0xcafebabe || magic == 0xbebafeca || magic == 0xcafebabf || magic == 0xbfbafeca;
+}
+
 // Decode before touching disk. Central/local names and methods must agree;
 // CRC and exact inflated sizes are checked, including data-descriptor ZIPs.
 bool readZip(const QByteArray& zip, QList<Entry>* entries, QString* error) {
@@ -238,18 +249,29 @@ bool inspectMacEntries(const QList<Entry>& entries, const QString& cpu, QString*
         if (name.endsWith(QStringLiteral(".dll")) || name.endsWith(QStringLiteral(".so"))
                 || entry.bytes.startsWith("MZ") || entry.bytes.startsWith("\x7f" "ELF"))
             return fail(error, QStringLiteral("Mac native archive contains a foreign-platform binary: ") + entry.name);
-        if (!name.endsWith(QStringLiteral(".dylib")) && !name.endsWith(QStringLiteral(".jnilib"))) continue;
+        if (isMacAudioHelper(entry)) {
+            if (!matchedMachO(entry.bytes, cpu, 2))
+                return fail(error, QStringLiteral("Lunar audio helper lacks a matching Mach-O executable slice."));
+            continue;
+        }
+        if (!name.endsWith(QStringLiteral(".dylib")) && !name.endsWith(QStringLiteral(".jnilib"))) {
+            if (hasMachOMagic(entry.bytes))
+                return fail(error, QStringLiteral("Mac native archive contains an unrecognized Mach-O member: ") + entry.name);
+            continue;
+        }
         if (name.contains('/') || !matchedMachO(entry.bytes, cpu, 6))
             return fail(error, QStringLiteral("Mac native library is not a flat, architecture-matched Mach-O dylib: ") + entry.name);
-        for (const char* family : {"lwjgl", "openal", "jinput", "jnidispatch"})
+        // Stock Lunar 1.8.9 arm64 omits JInput/JNA natives. Optional libraries
+        // still undergo the same binary checks above when supplied.
+        for (const char* family : {"lwjgl", "openal"})
             if (name.contains(QString::fromLatin1(family))) families.insert(QString::fromLatin1(family));
     }
-    if (families.size() != 4)
-        return fail(error, QStringLiteral("Mac native archive lacks inspected LWJGL, OpenAL, JInput or JNA library evidence. Supply the audited Lunar 1.8.9 native set; Windows or LWJGL 3 substitutes are unsupported."));
+    if (families.size() != 2)
+        return fail(error, QStringLiteral("Mac native archive lacks inspected LWJGL or OpenAL library evidence. Supply the audited Lunar 1.8.9 native set; Windows or LWJGL 3 substitutes are unsupported."));
     return true;
 }
 
-bool verifyExtraction(const QString& directory, const QList<Entry>& entries) {
+bool verifyExtraction(const QString& directory, const QList<Entry>& entries, bool mac) {
     const QFileInfo root(directory);
     if (!root.isDir() || root.isSymLink()) return false;
     const QString canonicalRoot = root.canonicalFilePath();
@@ -257,6 +279,7 @@ bool verifyExtraction(const QString& directory, const QList<Entry>& entries) {
     for (const Entry& entry : entries) {
         const QString path = QDir(directory).filePath(entry.name);
         const QFileInfo info(path);
+        if (mac && isMacAudioHelper(entry) && !info.isExecutable()) return false;
         QByteArray bytes;
         if (!info.isFile() || info.isSymLink() || !isWithin(canonicalRoot, info.canonicalFilePath())
                 || !readBounded(path, maxFileBytes, &bytes) || bytes != entry.bytes) {
@@ -357,10 +380,11 @@ bool NativeInspection::prepareNativeArchive(const QString& archive, const QStrin
         return fail(error, QStringLiteral("Native archive is missing, unreadable or exceeds the 64 MiB limit."));
     if (!readZip(zip, &entries, error)) return false;
     if (platform.os == QStringLiteral("macos") && !inspectMacEntries(entries, platform.cpu, error)) return false;
-    // Policy v1 is part of the digest so stronger future validation never
-    // inherits a directory produced under an older extraction policy.
+    // The policy is part of the digest so validation changes never
+    // inherit a directory produced under an older extraction policy.
     QCryptographicHash identity(QCryptographicHash::Sha256);
-    identity.addData(QByteArrayLiteral("atw-native-v1\n") + platform.os.toUtf8() + '\n'
+    const bool mac = platform.os == QStringLiteral("macos");
+    identity.addData((mac ? QByteArrayLiteral("atw-native-v2\n") : QByteArrayLiteral("atw-native-v1\n")) + platform.os.toUtf8() + '\n'
             + platform.cpu.toUtf8() + '\n' + version.toUtf8() + '\n');
     identity.addData(zip);
     const QString hash = QString::fromLatin1(identity.result().toHex());
@@ -390,7 +414,7 @@ bool NativeInspection::prepareNativeArchive(const QString& archive, const QStrin
     lock.setStaleLockTime(0);
     if (!lock.tryLock(0)) return fail(error, QStringLiteral("Native cache is busy; retry after the other launcher finishes."));
     if (QFileInfo::exists(destination) || QFileInfo(destination).isSymLink()) {
-        if (!verifyExtraction(destination, entries))
+        if (!verifyExtraction(destination, entries, mac))
             return fail(error, QStringLiteral("Native cache content is incomplete or changed. Close ATW/Minecraft and remove only data/natives/%1 before retrying.").arg(hash));
     } else {
         QTemporaryDir staging(QDir(root).filePath(QStringLiteral(".extract-XXXXXX")));
@@ -402,8 +426,12 @@ bool NativeInspection::prepareNativeArchive(const QString& archive, const QStrin
             QSaveFile file(path);
             if (!file.open(QIODevice::WriteOnly) || file.write(entry.bytes) != entry.bytes.size() || !file.commit())
                 return fail(error, QStringLiteral("Cannot write complete native extraction."));
+            if (mac && isMacAudioHelper(entry) && !QFile::setPermissions(path,
+                    QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner
+                    | QFile::ReadGroup | QFile::ExeGroup | QFile::ReadOther | QFile::ExeOther))
+                return fail(error, QStringLiteral("Cannot set executable permission on Lunar audio helper."));
         }
-        if (!verifyExtraction(staging.path(), entries) || !QDir().rename(staging.path(), destination))
+        if (!verifyExtraction(staging.path(), entries, mac) || !QDir().rename(staging.path(), destination))
             return fail(error, QStringLiteral("Cannot publish verified native extraction."));
     }
     *directory = destination;

@@ -33,6 +33,8 @@ THIN = {b"\xcf\xfa\xed\xfe": ("<", 64), b"\xfe\xed\xfa\xcf": (">", 64),
 FAT = {b"\xca\xfe\xba\xbe": (">", False), b"\xbe\xba\xfe\xca": ("<", False),
        b"\xca\xfe\xba\xbf": (">", True), b"\xbf\xba\xfe\xca": ("<", True)}
 FAMILIES = {"lwjgl": "lwjgl", "openal": "openal", "jinput": "jinput", "jna": "jnidispatch"}
+REQUIRED_FAMILIES = ("lwjgl", "openal")
+EXECUTABLE_HELPER = "rewind-audio-helper"
 OS_ALIASES = ("macos", "osx", "mac")
 ARCH_ALIASES = {"arm64": ("arm64", "aarch64", "universal", "universal2"),
                 "x86_64": ("x86_64", "amd64", "x64", "universal", "universal2")}
@@ -332,7 +334,7 @@ def decode_zip(data, remaining):
         # and discarded, never decoded as text or included in the report.
         if not directory:
             files.add(key)
-            if name.lower().endswith((".dll", ".so", ".dylib", ".jnilib")) or payload[:4] in THIN or payload[:4] in FAT or payload.startswith((b"MZ", b"\x7fELF")):
+            if name == EXECUTABLE_HELPER or name.lower().endswith((".dll", ".so", ".dylib", ".jnilib")) or payload[:4] in THIN or payload[:4] in FAT or payload.startswith((b"MZ", b"\x7fELF")):
                 entries.append((name, payload))
         cursor += 46 + name_len + extra_len + comment_len
     require(cursor == end and files, "ZIP central directory mismatch or no regular files")
@@ -358,12 +360,17 @@ def inspect_archive(root, path, arch, selected, remaining, compressed_budget):
         result.update(entryCount=count, expandedBytes=expanded)
         families = set()
         for name, payload in entries:
-            record = binary_record(name, payload, arch, 6)
+            helper = name == EXECUTABLE_HELPER
+            record = binary_record(name, payload, arch, 2 if helper else 6)
             result["binaries"].append(record)
             lower = name.lower()
             if lower.endswith((".dll", ".so")) or record["format"] in ("PE", "ELF"):
                 diagnostic(result["diagnostics"], "foreign_binary", name, "Mac archive must not contain DLL/ELF binaries")
-            if lower.endswith((".dylib", ".jnilib")):
+            if helper:
+                if not record["compatible"]:
+                    diagnostic(result["diagnostics"], "native_helper", name,
+                               "Lunar audio helper requires a matching Mach-O executable slice")
+            elif lower.endswith((".dylib", ".jnilib")):
                 if "/" in name or not record["compatible"]:
                     diagnostic(result["diagnostics"], "native_layout_or_slice", name, "Launcher requires flat architecture-matched Mach-O dylibs; see binary diagnostics")
                 else:
@@ -372,9 +379,10 @@ def inspect_archive(root, path, arch, selected, remaining, compressed_budget):
                 diagnostic(result["diagnostics"], "native_suffix", name, "Mach-O member lacks a launcher-recognized .dylib/.jnilib suffix")
         result["familiesPresent"] = [key for key in FAMILIES if key in families]
         result["missingFamilies"] = [key for key in FAMILIES if key not in families]
-        if result["missingFamilies"]:
+        required_missing = [key for key in REQUIRED_FAMILIES if key not in families]
+        if required_missing:
             diagnostic(result["diagnostics"], "native_families_missing", path.name,
-                       "Missing inspected families: " + ", ".join(result["missingFamilies"]) + "; supply audited Lunar 1.8.9 natives, not LWJGL 3 substitutes")
+                       "Missing inspected required families: " + ", ".join(required_missing) + "; supply audited Lunar 1.8.9 natives, not LWJGL 3 substitutes")
         result["compatible"] = not result["diagnostics"]
     except READ_ERRORS as error:
         diagnostic(result["diagnostics"], "archive_read_or_structure", path.name, str(error))

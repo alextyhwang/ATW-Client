@@ -120,6 +120,13 @@ Diagnostic launch options:
 Minecraft services. The refresh token is stored only in `config/account.dat`:
 Windows protects it with DPAPI, while the Mac branch stores the secret in the
 current user's macOS Keychain and leaves only a non-secret marker in that file.
+New Mac saves create a distinct Keychain item and put its random UUID reference
+in `account.dat`. A failed file replacement discards only the new item; a
+successful replacement retires the previous referenced item. Sign-out removes
+only the item referenced by that package. Legacy `keychain-v1` references remain
+readable, but their shared Keychain item is never deleted automatically because
+another installation may still depend on it. Scratch storage tests therefore
+cannot overwrite or delete an existing installation's secret.
 Before each launch the
 launcher refreshes the Minecraft token if it expires within 10 minutes and
 writes it to Lunar's `accounts.json`. That entry has no `refreshToken` key at

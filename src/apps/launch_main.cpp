@@ -146,6 +146,12 @@ int runAccountStoreSelfTest() {
     file.close();
     check(AccountStore::load(loaded) == AccountStore::LoadStatus::Unreadable, "foreign account.dat is unreadable");
 
+    // Restore the reference before sign-out: Mac Keychain v2 deletes only the
+    // item named by this package's account.dat, not a global test secret.
+    const bool restored = file.open(QIODevice::WriteOnly)
+        && file.write(sealed) == sealed.size() && file.flush();
+    file.close();
+    check(restored, "restore account reference before sign-out");
     AccountStore::signOut();
     check(!QFile::exists(AccountStore::accountFilePath()), "sign-out deletes account.dat");
     const QByteArray cleared = readAll(lunarPath);

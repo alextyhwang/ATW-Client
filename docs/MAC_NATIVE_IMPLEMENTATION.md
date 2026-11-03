@@ -73,16 +73,22 @@ Mac admission. Packages should start with an empty `data/natives` cache.
   support. Native Intel launcher/runtime composition can pass static checks
   on Intel Mac hardware; it has no runtime qualification from this work.
 - Mac archive libraries must be flat `.dylib/.jnilib` files with matching
-  Mach-O dylib slices. DLL/ELF payloads are rejected. Inspected LWJGL, OpenAL,
-  JInput and JNA dispatch library families are mandatory minimum evidence.
-  This conservative archive contract may reject a legitimate future Lunar
-  layout; inspect that actual artifact before changing it.
+  Mach-O dylib slices. DLL/ELF payloads are rejected. Inspected LWJGL and OpenAL
+  library families are required minimum evidence. JInput/JNA dispatch are
+  optional because the inspected stock arm64 Lunar 1.8.9 archive omits them;
+  supplied optional libraries still undergo all binary/layout checks. The
+  recognized flat `rewind-audio-helper` must have a matching Mach-O executable
+  slice. Unrecognized Mach-O members without library suffixes are rejected.
+  See [actual archive evidence](MAC_RUNTIME_INVENTORY.md).
 - The launcher prepares `data/natives/<sha256>` before Java starts. The
   SHA-256 covers extraction-policy version, OS, CPU, game version and complete
   compressed archive bytes. Archive updates and platform changes cannot
-  inherit an old destination. Complete cache contents are compared with
+  inherit an old destination. Mac uses extraction policy v2 to include the
+  validated helper's executable permission; Windows retains policy v1.
+  Complete cache contents are compared with
   freshly decoded bytes on every launch; modified, missing, extra or symlinked
-  files fail closed. Existing bad caches are never recursively deleted by
+  files fail closed, as does loss of helper executable permission. The helper
+  is granted mode 0755 only after binary validation. Existing bad caches are never recursively deleted by
   the launcher; the error identifies the one hash directory for later manual
   cleanup with ATW/Minecraft closed.
 - ZIP reading is limited to 64 MiB compressed, 128 MiB per file, 256 MiB
@@ -110,13 +116,14 @@ Mac admission. Packages should start with an empty `data/natives` cache.
 
 ## Genuine blockers and deferred work
 
-The actual Mac Lunar archives and Java distribution are absent. Therefore the
-copied payload fails Mac preflight; no archive, JVM or renderer support is
-guessed. Selection labels plus Mach-O architecture cannot prove Lunar JNI ABI
+The October implementation lacked actual Mac inputs. The November inventory
+inspected stock arm64 Lunar artifacts and corrected admission for optional
+families and the audio helper; see the linked inventory evidence. Selection
+labels plus Mach-O architecture cannot prove Lunar JNI ABI
 compatibility, JNI exports, deployment target/load-command dependencies,
 signing/notarization, embedded jar natives, optional custom-agent native loads,
 actual loaded classes/libraries or feature parity. Inspect those artifacts
-before shipping a Mac package. The four required families are minimum archive
+before shipping a Mac package. The two required families are minimum archive
 admission, not an exhaustive or qualified Lunar dependency manifest.
 
 Native executable/library bytes are checked before launch; normal package
@@ -124,8 +131,12 @@ writability still permits later changes by the user or other local processes.
 This is stale-cache prevention and static admission, not a sandbox against
 concurrent hostile file replacement.
 
-Deferred verification includes C++/Qt/zlib compilation on Windows and Mac,
-ZIP/Mach-O fixture tests, Windows launch regression, relocation of both app
+The November standalone C++ extraction test compiled on Mac with Qt 6.12.0/zlib
+and passed stock archive extraction, helper permission, cache reuse and
+permission-loss rejection. Synthetic Python ZIP/Mach-O regressions passed on
+Windows and Mac; the full real Mac Java/Lunar static inventory also passed.
+Deferred verification includes full launcher compilation, Windows launch
+regression, relocation of both app
 bundles, actual Java/native dynamic linking, full Lunar/Weave feature/input
 parity and all performance work. No speedup or launch success is claimed.
 Metal world-pass/depth/stencil/presentation coverage remains a separate
