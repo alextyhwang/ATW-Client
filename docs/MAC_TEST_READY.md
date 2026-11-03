@@ -29,6 +29,12 @@ have passed on the M2 Pro. The private release is
 No Mac multiplayer, visual/input parity or FPS result is claimed. A build-only
 success is not evidence of multiplayer compatibility.
 
+The November 3 release omitted Qt's TLS backend, preventing Microsoft code
+issuance. The build now explicitly includes Secure Transport in both launchers.
+An in-place repair on the M2 Pro restored code issuance and polling. Keychain
+storage still failed when checked over SSH; persistent Mac sign-in remains
+unqualified. Replacing the published archive is a separate release step.
+
 ## Packaging
 
 The build procedure is in [MAC_TEST_BUILD.md](MAC_TEST_BUILD.md). It takes an

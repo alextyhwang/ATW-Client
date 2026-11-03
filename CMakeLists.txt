@@ -369,7 +369,26 @@ if(APPLE)
     if(NOT ATW_MACDEPLOYQT_EXECUTABLE)
         message(FATAL_ERROR "macdeployqt from the selected Qt installation is required")
     endif()
+    if(QT_VER STREQUAL "Qt6")
+        execute_process(COMMAND "${ATW_QMAKE_EXECUTABLE}" -query QT_INSTALL_PLUGINS
+            OUTPUT_VARIABLE ATW_QT_PLUGIN_DIR OUTPUT_STRIP_TRAILING_WHITESPACE
+            COMMAND_ERROR_IS_FATAL ANY)
+        set(ATW_MAC_TLS_PLUGIN "${ATW_QT_PLUGIN_DIR}/tls/libqsecuretransportbackend.dylib")
+        if(NOT EXISTS "${ATW_MAC_TLS_PLUGIN}")
+            message(FATAL_ERROR "Qt Secure Transport TLS plugin is required for Microsoft sign-in")
+        endif()
+    endif()
     foreach(ATW_TARGET IN LISTS ATW_TARGETS)
+        # macdeployqt can omit dynamically discovered TLS backends. Seed the
+        # native Apple backend explicitly before dependency deployment/signing.
+        if(QT_VER STREQUAL "Qt6")
+            add_custom_command(TARGET ${ATW_TARGET} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E make_directory
+                    "$<TARGET_BUNDLE_DIR:${ATW_TARGET}>/Contents/PlugIns/tls"
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different "${ATW_MAC_TLS_PLUGIN}"
+                    "$<TARGET_BUNDLE_DIR:${ATW_TARGET}>/Contents/PlugIns/tls/"
+                VERBATIM)
+        endif()
         add_custom_command(TARGET ${ATW_TARGET} POST_BUILD
             COMMAND "${ATW_MACDEPLOYQT_EXECUTABLE}" "$<TARGET_BUNDLE_DIR:${ATW_TARGET}>" -always-overwrite
             COMMENT "Deploying Qt frameworks and Cocoa plugin for ${ATW_TARGET}"
