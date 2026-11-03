@@ -6,6 +6,7 @@ you need their evidence; this directory is not a collection to load wholesale.
 | Task | Current entry point |
 | --- | --- |
 | Build and repository layout | [Root README](../README.md) |
+| Launcher/config UI and Figma reference | [UI design](UI_DESIGN.md) |
 | Authentication, portable releases, server checks | [Portable guide](PORTABLE.md) |
 | Remaining portability work | [Portability status](../PORTABILITY_TODO.md) |
 | Latest local package test | [2026-11-02 smoke test](PORTABLE_SMOKE_TEST_20261102.md) |

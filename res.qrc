@@ -10,21 +10,12 @@
         <file>res/icons/helper.svg</file>
         <file>res/icons/mod.svg</file>
         <file>res/icons/log.svg</file>
-        <file>res/launchbutton/normal.png</file>
-        <file>res/launchbutton/running.png</file>
-        <file>res/slider/track.svg</file>
-        <file>res/slider/thumb.svg</file>
-        <file>res/tabs/selected.svg</file>
-        <file>res/tabs/unselected.svg</file>
-        <file>res/tabs/game.png</file>
-        <file>res/tabs/game_deselected.png</file>
-        <file>res/tabs/mods.png</file>
-        <file>res/tabs/mods_deselected.png</file>
-        <file>res/tabs/packs.png</file>
-        <file>res/tabs/packs_deselected.png</file>
-        <file>res/tabs/other.png</file>
-        <file>res/tabs/other_deselected.png</file>
-        <file>res/toggle/on.svg</file>
-        <file>res/toggle/off.svg</file>
+        <file>res/ui/launch-button/label-launch.svg</file>
+        <file>res/ui/launch-button/label-close.svg</file>
+        <file>res/ui/window/label-atw.svg</file>
+        <file>res/ui/window/glyph-close.svg</file>
+        <file>res/ui/inputs/check-on.svg</file>
+        <file>res/ui/inputs/check-off.svg</file>
+        <file>res/ui/inputs/chevron-down.svg</file>
     </qresource>
 </RCC>

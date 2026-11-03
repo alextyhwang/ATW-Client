@@ -7,6 +7,7 @@
 #include <QTextStream>
 
 #include "gui/mainwindow.h"
+#include "gui/style/atwtheme.h"
 #include "launch/offlinelauncher.h"
 #include "util/fs.h"
 
@@ -20,35 +21,8 @@ int main(int argc, char *argv[]) {
     QApplication::setApplicationName(QStringLiteral("atw-client"));
 #endif
 
-    // Use Fusion style for consistent cross-platform look (avoids Windows native inputs)
-    app.setStyle(QStringLiteral("Fusion"));
-
-    // Add the bundled Minecraft-style font from resources.
-    QString fontPath = QStringLiteral(":/res/fonts/Minecraft.ttf");
-
-    // Font already handles capitalization correctly now that text-transform: none is set
-    int fontId = QFontDatabase::addApplicationFont(fontPath);
-    QString fontFamily = QStringLiteral("Minecraft");
-    if (fontId >= 0) {
-        QStringList families = QFontDatabase::applicationFontFamilies(fontId);
-        if (!families.isEmpty()) {
-            for (const QString& f : families) {
-                if (f.contains("Medium", Qt::CaseInsensitive)) {
-                    fontFamily = f;
-                    break;
-                }
-            }
-            if (fontFamily == QStringLiteral("Minecraft")) {
-                fontFamily = families.first();
-            }
-            QFont mainFont(fontFamily, 14);
-            mainFont.setStyleStrategy(QFont::PreferAntialias);
-            mainFont.setWeight(QFont::Medium);
-            // Tell Qt we specifically want the font family string to just work
-            mainFont.setFamily(fontFamily);
-            app.setFont(mainFont);
-        }
-    }
+    // Fusion, the bundled pixel font, palette and stylesheet (docs/UI_DESIGN.md).
+    AtwTheme::installApplicationTheme(app);
 
     QCommandLineParser parser;
     parser.addHelpOption();

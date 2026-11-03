@@ -4,10 +4,16 @@
 
 #include "otherpage.h"
 
+#include <QTabBar>
 #include <QVBoxLayout>
 
 OtherPage::OtherPage(Config& config, QWidget* parent) : ConfigurationPage(config, parent) {
     subTabs = new QTabWidget(this);
+    subTabs->setObjectName(QStringLiteral("subTabs"));
+    subTabs->setDocumentMode(true);
+    subTabs->tabBar()->setUsesScrollButtons(false);
+    subTabs->tabBar()->setDrawBase(false);
+    subTabs->tabBar()->setCursor(Qt::PointingHandCursor);
     helpersPage = new HelpersPage(config, this);
     logsPage = new LogsPage(config, this);
 

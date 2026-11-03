@@ -1,0 +1,8 @@
+<!-- Pixel chevron for combo boxes. -->
+<svg width="9" height="6" viewBox="0 0 9 6" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">
+<g fill="#929292">
+<rect x="0" y="0" width="9" height="2"/>
+<rect x="2" y="2" width="5" height="2"/>
+<rect x="3" y="4" width="3" height="2"/>
+</g>
+</svg>

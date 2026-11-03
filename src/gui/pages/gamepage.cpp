@@ -12,8 +12,11 @@
 #include <QCheckBox>
 #include <QComboBox>
 
+#include "gui/style/atwtheme.h"
 #include "gui/widgets/accountwidget.h"
 #include "gui/widgets/filechooser.h"
+#include "gui/widgets/pixelslider.h"
+#include "gui/widgets/pixeltoggle.h"
 #include "gui/widgets/widgetutils.h"
 #include <QDesktopServices>
 #include <QUrl>
@@ -38,89 +41,102 @@ unsigned long long getSystemMemory() {
 }
 #endif
 
+using namespace AtwTheme;
+
 GamePage::GamePage(Config& config, QWidget *parent) : ConfigurationPage(config, parent) {
+    // Figma card content: groups 14 px apart; each label block is 24 px.
     QVBoxLayout* mainLayout = new QVBoxLayout();
-    mainLayout->setSpacing(16); // Even spacing between elements
-    mainLayout->setContentsMargins(18, 0, 18, 14); // Match figma padding for config page
+    mainLayout->setSpacing(Metrics::GroupGap);
+    mainLayout->setContentsMargins(0, 0, 0, 0);
 
     unsigned long long systemMemory = getSystemMemory();
     size_t mibMemory = (size_t)(systemMemory / 1024 / 1024);
     size_t pageStep = (size_t)(mibMemory / 16);
 
     QHBoxLayout* memLabelLayout = new QHBoxLayout();
-    QLabel* memoryLabel = new QLabel(QStringLiteral("Memory"));
-    QLabel* memoryValLabel = new QLabel();
+    memLabelLayout->setSpacing(0);
+    QLabel* memoryLabel = WidgetUtils::fieldLabel(QStringLiteral("Memory"));
+    QLabel* memoryValLabel = WidgetUtils::fieldValue();
     memLabelLayout->addWidget(memoryLabel);
     memLabelLayout->addStretch();
     memLabelLayout->addWidget(memoryValLabel);
 
-    memorySlider = new QSlider(Qt::Horizontal);
+    memorySlider = new PixelSlider();
     memorySlider->setMinimum(1024);
     memorySlider->setMaximum(mibMemory);
     memorySlider->setPageStep(pageStep);
+    memorySlider->setSingleStep(256);
+    memorySlider->setAccessibleName(QStringLiteral("Memory"));
 
-    memoryValLabel->setStyleSheet("color: #BFBFBF; font-size: 16px;");
     connect(memorySlider, &QSlider::valueChanged, [memoryValLabel](int val){
         double gb = val / 1024.0;
         memoryValLabel->setText(QString::number(gb, 'f', 1) + QStringLiteral("GB"));
     });
 
     QVBoxLayout* memorySliderContainer = new QVBoxLayout();
-    memorySliderContainer->setSpacing(4);
+    memorySliderContainer->setSpacing(0);
     memorySliderContainer->addLayout(memLabelLayout);
     memorySliderContainer->addWidget(memorySlider);
 
-    QVBoxLayout* jreContainer = new QVBoxLayout();
-    jreContainer->setSpacing(4);
-    jreContainer->addWidget(new QLabel(QStringLiteral("JRE Path")), 0, Qt::AlignLeft);
     jrePath = new FileChooser(QFileDialog::ExistingFile);
-    jreContainer->addWidget(jrePath);
+    jrePath->setPlaceholderText(QStringLiteral("Bundled Java runtime"));
+    jrePath->setAccessibleLabel(QStringLiteral("JRE Path"));
+    QVBoxLayout* jreContainer = WidgetUtils::fieldGroup(WidgetUtils::fieldLabel(QStringLiteral("JRE Path")), jrePath);
 
-    QVBoxLayout* minecraftContainer = new QVBoxLayout();
-    minecraftContainer->setSpacing(4);
-    minecraftContainer->addWidget(new QLabel(QStringLiteral("Minecraft Path")), 0, Qt::AlignLeft);
     minecraftPathChooser = new FileChooser(QFileDialog::Directory);
-    minecraftContainer->addWidget(minecraftPathChooser);
+    minecraftPathChooser->setPlaceholderText(QStringLiteral("Default Minecraft folder"));
+    minecraftPathChooser->setAccessibleLabel(QStringLiteral("Minecraft Path"));
+    QVBoxLayout* minecraftContainer =
+        WidgetUtils::fieldGroup(WidgetUtils::fieldLabel(QStringLiteral("Minecraft Path")), minecraftPathChooser);
 
 #ifdef ATW_TEST_PORTABLE
-    QVBoxLayout* profileContainer = new QVBoxLayout();
-    profileContainer->setSpacing(4);
-    profileContainer->addWidget(new QLabel(QStringLiteral("Java Profile")), 0, Qt::AlignLeft);
     javaProfile = new QComboBox();
     javaProfile->addItem(QStringLiteral("Stable G1, recommended"), QStringLiteral("stable-g1"));
     javaProfile->addItem(QStringLiteral("GraalVM experimental"), QStringLiteral("graal-experimental"));
     javaProfile->addItem(QStringLiteral("Low-pause experimental (Java 21+)"), QStringLiteral("low-pause"));
-    profileContainer->addWidget(javaProfile);
+    QVBoxLayout* profileContainer =
+        WidgetUtils::fieldGroup(WidgetUtils::fieldLabel(QStringLiteral("Java Profile")), javaProfile);
 
     QHBoxLayout* largePagesLayout = new QHBoxLayout();
-    largePagesLayout->addWidget(new QLabel(QStringLiteral("Use Large Pages")));
-    useLargePages = new QCheckBox();
+    largePagesLayout->addWidget(WidgetUtils::rowLabel(QStringLiteral("Use Large Pages"), Metrics::ToggleHeight));
+    useLargePages = new PixelToggle();
+    useLargePages->setAccessibleName(QStringLiteral("Use Large Pages"));
     largePagesLayout->addStretch();
     largePagesLayout->addWidget(useLargePages);
 
     QHBoxLayout* gpuReminderLayout = new QHBoxLayout();
-    gpuReminderLayout->addWidget(new QLabel(QStringLiteral("Discrete GPU Reminder")));
-    showGpuReminder = new QCheckBox();
+    gpuReminderLayout->addWidget(WidgetUtils::rowLabel(QStringLiteral("Discrete GPU Reminder"), Metrics::ToggleHeight));
+    showGpuReminder = new PixelToggle();
+    showGpuReminder->setAccessibleName(QStringLiteral("Discrete GPU Reminder"));
     gpuReminderLayout->addStretch();
     gpuReminderLayout->addWidget(showGpuReminder);
 #endif
 
-    QVBoxLayout* jvmArgsGroup = new QVBoxLayout();
-    jvmArgsGroup->setSpacing(4);
     jvmArgs = new QPlainTextEdit();
-    jvmArgs->setMinimumHeight(126); // Match figma size
-    jvmArgs->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    jvmArgsGroup->addWidget(new QLabel(QStringLiteral("Custom JVM Arguments")), 0, Qt::AlignLeft);
-    jvmArgsGroup->addWidget(jvmArgs);
+    jvmArgs->setObjectName(QStringLiteral("jvmArgs"));
+    jvmArgs->setAccessibleName(QStringLiteral("Custom JVM Arguments"));
+    jvmArgs->setTabChangesFocus(true);
+    // Figma box is 126 px; extra window height goes here, and it can give a
+    // little back before the page needs to scroll.
+    jvmArgs->setMinimumHeight(90);
+    jvmArgs->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    QVBoxLayout* jvmArgsGroup =
+        WidgetUtils::fieldGroup(WidgetUtils::fieldLabel(QStringLiteral("Custom JVM Arguments")), jvmArgs);
+    jvmArgsGroup->setStretch(1, 1);
 
     QHBoxLayout* toggleLayout = new QHBoxLayout();
-    toggleLayout->addWidget(new QLabel(QStringLiteral("Launcher Open after Launch")));
-    closeOnLaunch = new QCheckBox();
+    toggleLayout->setSpacing(0);
+    toggleLayout->addWidget(WidgetUtils::rowLabel(QStringLiteral("Launcher Open after Launch"), Metrics::ToggleHeight));
+    closeOnLaunch = new PixelToggle();
+    closeOnLaunch->setAccessibleName(QStringLiteral("Launcher Open after Launch"));
     closeOnLaunch->setChecked(!config.closeOnLaunch); // Note: we should probably map this properly
     toggleLayout->addStretch();
-    toggleLayout->addWidget(closeOnLaunch);
+    toggleLayout->addWidget(closeOnLaunch, 0, Qt::AlignVCenter);
 
-    mainLayout->addWidget(new AccountWidget(config));
+    // Not in the Figma frame: the sign-in row uses the card's free space below
+    // the last Figma row so every Figma element keeps its position.
+    account = new AccountWidget(config);
+
     mainLayout->addLayout(memorySliderContainer);
     mainLayout->addLayout(minecraftContainer);
     mainLayout->addLayout(jreContainer);
@@ -129,9 +145,9 @@ GamePage::GamePage(Config& config, QWidget *parent) : ConfigurationPage(config, 
     mainLayout->addLayout(largePagesLayout);
     mainLayout->addLayout(gpuReminderLayout);
 #endif
-    mainLayout->addLayout(jvmArgsGroup);
+    mainLayout->addLayout(jvmArgsGroup, 1);
     mainLayout->addLayout(toggleLayout);
-    mainLayout->addStretch(1); // Push everything to the top
+    mainLayout->addWidget(account);
 
     setLayout(mainLayout);
 }
@@ -179,6 +195,10 @@ void GamePage::load() {
     showGpuReminder->setChecked(config.showGpuReminder);
 #endif
     closeOnLaunch->setChecked(!config.closeOnLaunch);
+}
+
+void GamePage::refreshAccount() {
+    account->refresh();
 }
 
 QString GamePage::description() {

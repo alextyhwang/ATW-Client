@@ -17,6 +17,15 @@ ModsView::ModsView(QWidget *parent) : QTableView(parent) {
     horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     setAlternatingRowColors(true);
 
+    // Figma list styling: 24 px rows, no grid, frameless (colours in the app stylesheet).
+    verticalHeader()->setDefaultSectionSize(24);
+    verticalHeader()->setMinimumSectionSize(20);
+    setShowGrid(false);
+    setFrameShape(QFrame::NoFrame);
+    setWordWrap(false);
+    horizontalHeader()->setDefaultAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    horizontalHeader()->hide();   // single "Name" column; the section title names it
+
     setAcceptDrops(true);
     setDropIndicatorShown(true);
     setDragDropMode(QAbstractItemView::DropOnly);

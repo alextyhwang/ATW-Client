@@ -15,24 +15,16 @@
 
 #include "auth/accountstore.h"
 #include "auth/msaauth.h"
+#include "gui/style/atwtheme.h"
 
 SignInDialog::SignInDialog(const QString& clientId, bool allowOffline, const QString& notice, QWidget* parent)
     : QDialog(parent), auth(new MsaAuth(clientId, this)), clientId(MsaAuth::resolveClientId(clientId)) {
     setWindowTitle(QStringLiteral("ATW Client - Sign in"));
     setWindowFlag(Qt::WindowContextHelpButtonHint, false);
     setMinimumWidth(440);
-    setStyleSheet(QStringLiteral(
-        "QDialog { background-color: #303031; }"
-        "QLabel { color: #CFCFCF; font-size: 14px; }"
-        "QLabel#title { color: #E7EDF9; font-size: 20px; }"
-        "QLabel#notice { color: #E8B65C; }"
-        "QLabel#code { color: #E7EDF9; font-family: Consolas, monospace; font-size: 34px; font-weight: bold; }"
-        "QPushButton { background-color: #343435; color: #CFCFCF; border: 1px solid #4A4A4C;"
-        " border-radius: 4px; padding: 7px 14px; font-size: 14px; }"
-        "QPushButton:hover { background-color: #3d3d3e; }"
-        "QPushButton:disabled { color: #6C6C6C; }"
-        "QPushButton#primary { background-color: #4779D8; color: white; border: none; }"
-        "QPushButton#primary:hover { background-color: #5687E2; }"));
+    // Shared ATW look (pixel font, raised buttons); atw-launch shows this too.
+    AtwTheme::ensureFonts();
+    setStyleSheet(AtwTheme::signInDialogStyleSheet());
 
     QLabel* title = new QLabel(QStringLiteral("Sign in with Microsoft"));
     title->setObjectName(QStringLiteral("title"));

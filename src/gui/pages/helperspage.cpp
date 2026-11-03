@@ -14,6 +14,8 @@
 #include <QFileSystemModel>
 #include <QItemSelectionModel>
 
+#include "gui/widgets/widgetutils.h"
+
 #ifndef Q_OS_WIN
 class ExecutableFilter : public QSortFilterProxyModel {
 protected:
@@ -46,17 +48,18 @@ void HelpersPage::onSelect(const QItemSelection& selected, const QItemSelection&
 
 HelpersPage::HelpersPage(Config& config, QWidget *parent) : ConfigurationPage(config, parent) {
     QVBoxLayout* mainLayout = new QVBoxLayout();
-    mainLayout->setSpacing(20);
+    mainLayout->setSpacing(0);
+    mainLayout->setContentsMargins(0, 0, 0, 0);
+
+    QLabel* hint = new QLabel(QStringLiteral("Programs that start with the game, such as overlays."));
+    hint->setObjectName(QStringLiteral("listHint"));
+    hint->setWordWrap(true);
 
     helpers = new QListWidget();
-    QFont font;
-    font.setPointSize(11);
-    helpers->setFont(font);
     helpers->setAlternatingRowColors(true);
-
-    QPalette palette;
-    palette.setColor(QPalette::Disabled, QPalette::Text, Qt::blue);
-    helpers->setPalette(palette);
+    helpers->setFrameShape(QFrame::NoFrame);
+    helpers->setAccessibleName(QStringLiteral("Helpers"));
+    WidgetUtils::installEmptyHint(helpers, QStringLiteral("No helpers yet. Choose Add to pick a program."));
 
     add = new QPushButton(QStringLiteral("Add"));
     remove = new QPushButton(QStringLiteral("Remove"));
@@ -111,15 +114,11 @@ HelpersPage::HelpersPage(Config& config, QWidget *parent) : ConfigurationPage(co
         }
     });
 
-    QGridLayout* helpersContainer = new QGridLayout();
-    helpersContainer->setSpacing(6);
-    helpersContainer->addWidget(helpers, 0, 0, 5, 1);
-    helpersContainer->addWidget(add, 0, 1);
-    helpersContainer->addWidget(remove, 1, 1);
-    helpersContainer->addWidget(moveUp, 2, 1);
-    helpersContainer->addWidget(moveDown, 3, 1);
-
-    mainLayout->addLayout(helpersContainer);
+    mainLayout->addWidget(hint);
+    mainLayout->addSpacing(9);
+    mainLayout->addWidget(helpers, 1);
+    mainLayout->addSpacing(6);
+    mainLayout->addLayout(WidgetUtils::buttonRow({add, remove, moveUp, moveDown}));
 
 
     setLayout(mainLayout);

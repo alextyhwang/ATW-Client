@@ -1,5 +1,8 @@
 #include "modspage.h"
 #include "util/fs.h"
+#include "gui/style/atwtheme.h"
+#include "gui/widgets/pixeltoggle.h"
+#include "gui/widgets/widgetutils.h"
 
 #include <QDir>
 #include <QVBoxLayout>
@@ -16,16 +19,23 @@
 
 ModsPage::ModsPage(Config& config, QWidget* parent) : ConfigurationPage(config, parent) {
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
-    mainLayout->setSpacing(12);
+    mainLayout->setSpacing(0);
     mainLayout->setContentsMargins(0, 0, 0, 0);
 
     // --- Weave Mods Section ---
+    const int headerHeight = AtwTheme::Metrics::LabelBlock;
     QHBoxLayout* weaveHeaderLayout = new QHBoxLayout();
-    QLabel* weaveLabel = new QLabel(QStringLiteral("Weave Mods"));
-    useWeave = new QCheckBox(QStringLiteral("Enable Weave"));
+    weaveHeaderLayout->setSpacing(9);
+    QLabel* weaveLabel = WidgetUtils::rowLabel(QStringLiteral("Weave Mods"), headerHeight);
+    QLabel* weaveToggleLabel = WidgetUtils::fieldValue(QStringLiteral("Enable Weave"));
+    weaveToggleLabel->setFixedHeight(headerHeight);
+    weaveToggleLabel->setContentsMargins(0, (headerHeight - 12) / 2, 0, 0);
+    useWeave = new PixelToggle();
+    useWeave->setAccessibleName(QStringLiteral("Enable Weave"));
     weaveHeaderLayout->addWidget(weaveLabel);
     weaveHeaderLayout->addStretch();
-    weaveHeaderLayout->addWidget(useWeave);
+    weaveHeaderLayout->addWidget(weaveToggleLabel);
+    weaveHeaderLayout->addWidget(useWeave, 0, Qt::AlignVCenter);
 
     mods = new ModsView(this);
     mods->setModel((modsModel = new ModsModel(config.mods, this)));
@@ -82,17 +92,12 @@ ModsPage::ModsPage(Config& config, QWidget* parent) : ConfigurationPage(config, 
         QDesktopServices::openUrl(QUrl::fromLocalFile(FS::getWeaveModsDirectory()));
     });
 
-    QGridLayout* modsContainer = new QGridLayout();
-    modsContainer->setSpacing(6);
-    modsContainer->addWidget(mods, 0, 0, 6, 1);
-    modsContainer->addWidget(modsAdd, 0, 1);
-    modsContainer->addWidget(modsRemove, 1, 1);
-    modsContainer->addWidget(modsMoveUp, 2, 1);
-    modsContainer->addWidget(modsMoveDown, 3, 1);
-    modsContainer->addWidget(openFolder, 4, 1);
+    mods->setAccessibleName(QStringLiteral("Weave Mods"));
+    WidgetUtils::installEmptyHint(mods, QStringLiteral("No Weave mods. Drop a .jar here or choose Add."));
+    QHBoxLayout* modsButtons = WidgetUtils::buttonRow({modsAdd, modsRemove, modsMoveUp, modsMoveDown}, {openFolder});
 
     // --- Java Agents Section ---
-    QLabel* agentsLabel = new QLabel(QStringLiteral("Java Agents"));
+    QLabel* agentsLabel = WidgetUtils::rowLabel(QStringLiteral("Java Agents"), headerHeight);
 
     agents = new AgentsView(this);
     agents->setModel((agentsModel = new AgentsModel(config.agents, this)));
@@ -144,18 +149,23 @@ ModsPage::ModsPage(Config& config, QWidget* parent) : ConfigurationPage(config, 
         }
     });
 
-    QGridLayout* agentsContainer = new QGridLayout();
-    agentsContainer->setSpacing(6);
-    agentsContainer->addWidget(agents, 0, 0, 5, 1);
-    agentsContainer->addWidget(agentsAdd, 0, 1);
-    agentsContainer->addWidget(agentsRemove, 1, 1);
-    agentsContainer->addWidget(agentsMoveUp, 2, 1);
-    agentsContainer->addWidget(agentsMoveDown, 3, 1);
+    agents->setAccessibleName(QStringLiteral("Java Agents"));
+    WidgetUtils::installEmptyHint(agents, QStringLiteral("No Java agents. Drop a .jar here or choose Add."));
+    QHBoxLayout* agentsButtons = WidgetUtils::buttonRow({agentsAdd, agentsRemove, agentsMoveUp, agentsMoveDown});
 
+    mods->setMinimumHeight(72);
+    agents->setMinimumHeight(72);
     mainLayout->addLayout(weaveHeaderLayout);
-    mainLayout->addLayout(modsContainer, 1);
+    mainLayout->addSpacing(4);
+    mainLayout->addWidget(mods, 3);
+    mainLayout->addSpacing(6);
+    mainLayout->addLayout(modsButtons);
+    mainLayout->addSpacing(AtwTheme::Metrics::GroupGap);
     mainLayout->addWidget(agentsLabel);
-    mainLayout->addLayout(agentsContainer, 1);
+    mainLayout->addSpacing(4);
+    mainLayout->addWidget(agents, 2);
+    mainLayout->addSpacing(6);
+    mainLayout->addLayout(agentsButtons);
 
     setLayout(mainLayout);
 }
