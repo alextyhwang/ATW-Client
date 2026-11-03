@@ -9,6 +9,7 @@ import time
 import unittest
 from unittest import mock
 import zipfile
+import plistlib
 
 
 spec = importlib.util.spec_from_file_location(
@@ -88,6 +89,20 @@ class MacAppTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 app.create_app(self.package, path)
 
+    def test_release_version_channel_and_native_helper_are_embedded(self):
+        helper = self.root / "atw-update"
+        helper.write_bytes(b"synthetic-native-helper")
+        destination = self.root / "ATW Client.app"
+        app.create_app(self.package, destination, helper, "1.2.3", "beta")
+        info = plistlib.loads((destination / "Contents/Info.plist").read_bytes())
+        self.assertEqual(info["CFBundleShortVersionString"], "1.2.3")
+        self.assertEqual(info["CFBundleVersion"], "1.2.3")
+        self.assertEqual(info["ATWUpdateChannel"], "beta")
+        self.assertEqual((destination / "Contents/MacOS/atw-update").read_bytes(), helper.read_bytes())
+        for version in ("v1.0.0", "1.0", "1.0.0-beta", "01.0.0", "-1.0.0"):
+            with self.subTest(version=version), self.assertRaisesRegex(ValueError, "version"):
+                app.create_app(self.package, self.root / "invalid-version.app", version=version)
+
     def test_archive_is_visible_only_after_successful_validation(self):
         bundle = self.root / "release.app"
         app.create_app(self.package, bundle)
@@ -133,6 +148,7 @@ class BootstrapTests(unittest.TestCase):
             if path.is_file() and not path.name.endswith("json"):
                 path.chmod(0o755)
         self.put(self.package, self.mods + "/pinned.jar", "version1")
+        self.put(self.package, self.mods + "/obsolete.jar", "old-pin")
         self.executable = self.make_app("first")
 
     def put(self, root, relative, value):
@@ -157,13 +173,15 @@ class BootstrapTests(unittest.TestCase):
                  "data/home/AppData/Roaming/.minecraft/lunarclient/resourcepacks/custom.zip": "pack"}
         for path, value in state.items():
             self.put(self.installed, path, value)
-        self.put(self.installed, self.mods + "/obsolete.jar", "obsolete")
+        self.put(self.installed, self.mods + "/user-custom.jar", "user-mod")
+        (self.package / self.mods / "obsolete.jar").unlink()
         self.put(self.package, self.mods + "/pinned.jar", "version2")
         self.assertEqual(self.run_app(self.make_app("second")), 0)
         for path, value in state.items():
             self.assertEqual((self.installed / path).read_text(), value)
         self.assertEqual((self.installed / self.mods / "pinned.jar").read_text(), "version2")
         self.assertFalse((self.installed / self.mods / "obsolete.jar").exists())
+        self.assertEqual((self.installed / self.mods / "user-custom.jar").read_text(), "user-mod")
         self.assertFalse((self.base / "previous").exists())
 
     def test_live_lock_cannot_be_stolen_and_dead_lock_recovers(self):

@@ -665,7 +665,7 @@ def main():
     command = [cmake, "-S", str(source), "-B", str(prepared), "-G", "Unix Makefiles",
                "-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_OSX_ARCHITECTURES=" + args.arch,
                "-DCMAKE_OSX_DEPLOYMENT_TARGET=14.4",
-               "-DCMAKE_PREFIX_PATH=" + str(qt), "-DATW_BUILD_LEGACY_TARGETS=OFF", "-DINCLUDE_UPDATER=ON",
+               "-DCMAKE_PREFIX_PATH=" + str(qt), "-DATW_BUILD_LEGACY_TARGETS=OFF", "-DINCLUDE_UPDATER=OFF",
                "-DATW_JAVA_RUNTIME_SOURCE=" + str(inputs / "java"),
                "-DATW_LUNAR_DATA_SOURCE=" + str(inputs / "lunar"),
                "-DATW_WEAVE_MODS_SOURCE=" + str(inputs / "mods"),

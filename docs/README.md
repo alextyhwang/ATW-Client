@@ -14,6 +14,7 @@ you need their evidence; this directory is not a collection to load wholesale.
 | Weave changes and deployment | [Mod development](../MODS.md) |
 | Native architecture and deferred work | [Architecture status](../ARCHITECTURE_TODO.md) |
 | Apple-Silicon app, download and build | [Mac status and download](MAC_TEST_READY.md) |
+| Mac automatic updates, private feed, credential | [Native Mac updates](MAC_UPDATES.md) |
 
 ## Evidence and historical material
 

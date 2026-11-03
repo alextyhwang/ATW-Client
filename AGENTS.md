@@ -43,5 +43,20 @@ The release ZIP contains Minecraft/Lunar files and belongs only in the PRIVATE
 
 For packaging/auth changes, run the two regression scripts documented in
 `docs/PORTABLE.md` with Windows PowerShell 5.1. Mod builds use PowerShell 7.
+
+## Apple-Silicon Mac app
+
+Build, package and update details: [docs/MAC_TEST_READY.md](docs/MAC_TEST_READY.md),
+[docs/MAC_TEST_BUILD.md](docs/MAC_TEST_BUILD.md) and
+[docs/MAC_UPDATES.md](docs/MAC_UPDATES.md). Mac work happens on branch
+`mac/m2-pro-weave-1.8.9`; sign-in secrets live in the Keychain, never in files.
+Automatic updates come from the native Swift helper `scripts/mac/ATWUpdate.swift`
+reading the PRIVATE release feed (tags `mac-stable-vX.Y.Z`); the Qt
+`INCLUDE_UPDATER` checker stays OFF. Its tests run only on a Mac:
+`python3 -B -m unittest scripts.tests.test_mac_updater scripts.tests.test_create_mac_app`.
+Over SSH the login keychain is locked, so any Keychain write or credential read
+must happen in the desktop session (see `scripts/mac/import_github_token.sh`).
+Never publish a Mac release as "Latest" (it is the Windows default) and never
+grant the Mac more than read access to the private repository where avoidable.
 Installed optimization state can differ from source; consult qualification
 reports before replacing retained baseline jars.

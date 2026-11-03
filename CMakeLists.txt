@@ -12,7 +12,7 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
-option(INCLUDE_UPDATER "Include update checker" ON)
+option(INCLUDE_UPDATER "Include legacy notification-only update checker" OFF)
 option(ATW_BUILD_LEGACY_TARGETS "Build legacy atw-client and atw-test-exe targets" OFF)
 
 # Never consume copied Windows payloads as Mac artifacts. Use a fresh build
@@ -224,6 +224,16 @@ target_compile_definitions(atw-launch PRIVATE ATW_PACKAGE_MODE)
 set(ATW_TARGETS atw-config atw-launch)
 
 if(APPLE)
+    find_program(ATW_XCRUN_EXECUTABLE xcrun REQUIRED)
+    add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/atw-update"
+        COMMAND "${ATW_XCRUN_EXECUTABLE}" swiftc -O -parse-as-library
+            -target arm64-apple-macos14.4
+            "${CMAKE_CURRENT_SOURCE_DIR}/scripts/mac/ATWUpdate.swift"
+            -o "${CMAKE_BINARY_DIR}/atw-update"
+        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/scripts/mac/ATWUpdate.swift"
+        COMMENT "Building standalone macOS private-release updater"
+        VERBATIM)
+    add_custom_target(BuildMacUpdater ALL DEPENDS "${CMAKE_BINARY_DIR}/atw-update")
     # FS::getPackageRoot resolves the parent of each .app to this shared root.
     # Generator expression prevents multi-config generators adding Debug/Release.
     set_target_properties(atw-config atw-launch PROPERTIES

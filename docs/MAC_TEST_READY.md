@@ -36,8 +36,10 @@ JARs under its Mac private home, avoiding the first-run downloads observed in
 that upgrade test. Its full ZIP CRC check and 13 Mac packaging tests pass.
 The initial `mac-v20261103` download lacks these repairs; use the
 [Mac repair prerelease](https://github.com/alextyhwang/ATW-Client-Portable/releases/tag/mac-v20261103-r3).
-A Hypixel Bed Wars lobby join,
-visual/input parity and competitive FPS remain unqualified.
+The repair build also reached a Hypixel Bed Wars lobby (`/l bw`). The redesigned
+UI and the native updater are installed on the M2 Pro (outer app 1.0.1, updated
+from 1.0.0 through the private feed; see [MAC_UPDATES.md](MAC_UPDATES.md)). Visual/input
+parity and competitive FPS remain unqualified.
 
 The initial November 3 release omitted Qt's TLS backend, preventing Microsoft
 code issuance. The repaired build explicitly includes Secure Transport in both
@@ -76,7 +78,9 @@ python3 -B scripts/relocate_mac_qt.py /path/to/prepared-package
 python3 -B scripts/create_mac_app.py \
   --package /path/to/prepared-package \
   --output '/path/to/release/ATW Client.app' \
-  --archive '/path/to/release/ATW-Client-Mac-arm64.zip'
+  --updater-helper /path/to/build/atw-update \
+  --version 1.0.0 --channel stable \
+  --archive '/path/to/release/ATW-Client-Mac-arm64-1.0.0.zip'
 ```
 
 The archive option waits for macOS `ditto`, checks the ZIP central directory and
@@ -94,6 +98,11 @@ Runtime downloads belong only in the private
 [ATW-Client-Portable releases](https://github.com/alextyhwang/ATW-Client-Portable/releases).
 Sign in to GitHub with an account that has access. The source repository is
 public and must not contain the packaged Lunar/Minecraft runtime.
+
+The outer app includes a native automatic updater for that private repository.
+Its release manifest, per-user GitHub Keychain credential, player-state retention,
+rollback behavior and qualification requirements are described in
+[MAC_UPDATES.md](MAC_UPDATES.md). The legacy Qt notification checker stays OFF.
 
 The older October transfer kit is a developer input, not the finished app.
 Metal implementation documents remain research; this package has no Metal mode.

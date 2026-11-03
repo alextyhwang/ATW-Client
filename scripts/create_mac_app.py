@@ -84,6 +84,28 @@ if [ "${1-}" != '--atw-internal-locked' ]; then
     exec /usr/bin/lockf -k -t 0 "$base/.install.lock" /bin/sh "$0" --atw-internal-locked "$@"
 fi
 shift
+# The lock remains owned by lockf across helper checks, re-exec and the UI/game.
+# Detached game processes can outlive Config; the helper returns 20 to defer
+# both outer updates and writable-package replacement in that case.
+defer_install=0
+updater="$contents/MacOS/atw-update"
+if [ -x "$updater" ]; then
+    update_result=0
+    if [ "${1-}" = '--atw-resume-update' ]; then
+        shift
+        "$updater" --app "$contents/.." --base "$base" --launch-lock-held --resume-update || update_result=$?
+    else
+        "$updater" --app "$contents/.." --base "$base" --launch-lock-held || update_result=$?
+    fi
+    case "$update_result" in
+        10) exec /bin/sh "$0" --atw-internal-locked --atw-resume-update "$@" ;;
+        20) defer_install=1 ;;
+        0) ;;
+        *) defer_install=1 ;;
+    esac
+    # A replacement can change the package ID and bootstrap; only the new
+    # bootstrap reads its seed, after the atomic outer-app swap has completed.
+fi
 staging=''
 cleanup() {
     [ -z "$staging" ] || rm -rf "$staging"
@@ -98,7 +120,7 @@ trap 'exit 143' TERM
 if [ ! -e "$package" ] && [ -d "$base/previous" ]; then
     mv "$base/previous" "$package"
 fi
-if [ ! -f "$package/.atw-release" ] || [ "$(cat "$package/.atw-release" 2>/dev/null || true)" != "$release_id" ]; then
+if [ "$defer_install" = 0 ] && { [ ! -f "$package/.atw-release" ] || [ "$(cat "$package/.atw-release" 2>/dev/null || true)" != "$release_id" ]; }; then
     previous="$package"
     if [ ! -d "$previous" ]; then
         # Migrate the newest ready package from the former hash-based layout.
@@ -111,8 +133,41 @@ if [ ! -f "$package/.atw-release" ] || [ "$(cat "$package/.atw-release" 2>/dev/n
     fi
     staging=$(mktemp -d "$base/.package.XXXXXXXX")
     /usr/bin/ditto "$seed" "$staging"
-    # Only user state crosses releases. Java, loader, libraries and every mod
-    # always come from the pinned seed, including removal of obsolete mods.
+    # Keep additional user mods. Pins supplied by this release win filename
+    # collisions; mods recorded as previously shipped can be retired normally.
+    mod_dir='data/home/.weave/mods'
+    for mod in "$seed/$mod_dir/"*.jar "$seed/$mod_dir/"*.jar.disabled; do
+        [ -f "$mod" ] || continue
+        mod_name=$(basename "$mod")
+        case "$mod_name" in
+            *.disabled) alternate=${mod_name%.disabled} ;;
+            *) alternate="$mod_name.disabled" ;;
+        esac
+        if [ ! -e "$previous/$mod_dir/$mod_name" ] && [ -f "$previous/$mod_dir/$alternate" ]; then
+            mv "$staging/$mod_dir/$mod_name" "$staging/$mod_dir/$alternate"
+        fi
+    done
+    for mod in "$previous/$mod_dir/"*.jar "$previous/$mod_dir/"*.jar.disabled; do
+        [ -f "$mod" ] || continue
+        mod_name=$(basename "$mod")
+        [ ! -e "$staging/$mod_dir/$mod_name" ] || continue
+        case "$mod_name" in
+            *.disabled) alternate=${mod_name%.disabled} ;;
+            *) alternate="$mod_name.disabled" ;;
+        esac
+        if [ -f "$previous/.atw-shipped-mods" ] && { /usr/bin/grep -F -x -q -- "$mod_name" "$previous/.atw-shipped-mods" || /usr/bin/grep -F -x -q -- "$alternate" "$previous/.atw-shipped-mods"; }; then
+            continue
+        fi
+        mkdir -p "$staging/$mod_dir"
+        /usr/bin/ditto "$mod" "$staging/$mod_dir/$mod_name"
+    done
+    : > "$staging/.atw-shipped-mods"
+    for mod in "$seed/$mod_dir/"*.jar "$seed/$mod_dir/"*.jar.disabled; do
+        [ -f "$mod" ] || continue
+        basename "$mod" >> "$staging/.atw-shipped-mods"
+    done
+    # Java, loader, libraries and managed mod bytes come from the pinned seed.
+    # User state, extra mods and enabled/disabled choices cross releases.
     while IFS= read -r keep; do
         if [ -e "$previous/$keep" ]; then
             mkdir -p "$staging/$(dirname "$keep")"
@@ -130,6 +185,11 @@ data/home/AppData/Roaming/.minecraft/resourcepacks
 STATE
     printf '%s\n' "$release_id" > "$staging/.atw-release"
     : > "$staging/.atw-ready"
+    if [ -x "$updater" ]; then
+        guard_result=0
+        "$updater" --app "$contents/.." --base "$base" --launch-lock-held --guard-package || guard_result=$?
+        [ "$guard_result" = 0 ] || exit 75
+    fi
     rm -rf "$base/previous"
     if [ -d "$package" ]; then mv "$package" "$base/previous"; fi
     mv "$staging" "$package"
@@ -138,10 +198,21 @@ STATE
 fi
 cleanup
 trap - EXIT HUP INT TERM
+# A new outer app is acknowledged only once its writable runtime is usable.
+# Failure leaves rollback material for the next normal open.
+for required in "$package/atw-launch.app/Contents/MacOS/atw-launch" "$package/atw-config.app/Contents/MacOS/atw-config" "$package/runtime/java/bin/java"; do
+    [ -x "$required" ] || exit 70
+done
+if [ -x "$updater" ] && [ "$defer_install" = 0 ]; then
+    "$updater" --app "$contents/.." --base "$base" --launch-lock-held --acknowledge || true
+fi
 cd "$package"
-if [ "${1-}" = '--settings' ]; then
-    shift
+if [ "$#" = 0 ] || [ "${1-}" = '--settings' ]; then
+    [ "$#" = 0 ] || shift
     exec "$package/atw-config.app/Contents/MacOS/atw-config" "$@"
+fi
+if [ "${1-}" = '--launch' ]; then
+    shift
 fi
 exec "$package/atw-launch.app/Contents/MacOS/atw-launch" "$@"
 '''
@@ -175,7 +246,11 @@ def inventory(root):
     return sorted(entries, key=lambda entry: entry["path"])
 
 
-def create_app(package, output):
+def create_app(package, output, updater_helper=None, version="1.0.0", channel="stable"):
+    if not re.fullmatch(r"(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})", version):
+        raise ValueError("Release version must contain three numeric components")
+    if channel not in ("stable", "beta"):
+        raise ValueError("Release channel must be stable or beta")
     package = package.resolve(strict=True)
     output = output.absolute()
     if output.suffix != ".app" or output.exists() or output.is_symlink():
@@ -201,6 +276,12 @@ def create_app(package, output):
     executable = contents / "MacOS/ATW Client"
     executable.write_bytes(BOOTSTRAP.encode("utf-8"))
     executable.chmod(0o755)
+    if updater_helper is not None:
+        updater_helper = updater_helper.resolve(strict=True)
+        if not updater_helper.is_file():
+            raise ValueError("Updater helper must be a native executable")
+        shutil.copy2(updater_helper, contents / "MacOS/atw-update")
+        (contents / "MacOS/atw-update").chmod(0o755)
     (resources / "package-id").write_text(release_id + "\n", encoding="ascii")
     (resources / "package-manifest.json").write_bytes(encoded + b"\n")
     with (contents / "Info.plist").open("wb") as stream:
@@ -210,8 +291,9 @@ def create_app(package, output):
             "CFBundleIdentifier": "com.alextyhwang.atw-client",
             "CFBundleExecutable": "ATW Client",
             "CFBundlePackageType": "APPL",
-            "CFBundleShortVersionString": "1.0.0",
-            "CFBundleVersion": "1",
+            "CFBundleShortVersionString": version,
+            "CFBundleVersion": version,
+            "ATWUpdateChannel": channel,
             "LSMinimumSystemVersion": "14.4",
             "LSArchitecturePriority": ["arm64"],
             "NSHighResolutionCapable": True,
@@ -249,10 +331,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--package", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--updater-helper", required=True, type=Path,
+                        help="Standalone arm64 atw-update built on macOS")
+    parser.add_argument("--version", required=True, help="Monotonically increasing release version, e.g. 1.0.1")
+    parser.add_argument("--channel", choices=("stable", "beta"), default="stable")
     parser.add_argument("--archive", type=Path,
                         help="Create and CRC-verify a new release ZIP atomically (macOS only)")
     args = parser.parse_args()
-    release_id = create_app(args.package, args.output)
+    release_id = create_app(args.package, args.output, args.updater_helper, args.version, args.channel)
     print(f"Created {args.output}; private package ID {release_id}")
     if args.archive:
         create_archive(args.output, args.archive)

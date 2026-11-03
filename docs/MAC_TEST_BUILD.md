@@ -32,7 +32,9 @@ from the selected private API entry. No repository runtime directory is used.
 The existing `ATW_JAVA_RUNTIME_SOURCE` and `ATW_LUNAR_DATA_SOURCE` point at new
 `inputs/java` and `inputs/lunar` snapshots. CMake uses the explicitly selected
 Qt prefix and copied JDK `bin/jar`, fresh `cmake-build`, legacy targets OFF and
-the startup update checker ON. Only `atw-launch` and `atw-config` are built. Selected agents and
+the legacy notification-only update checker OFF. The outer Mac app uses the
+separate native private-feed updater described in [MAC_UPDATES.md](MAC_UPDATES.md).
+The native targets include `atw-launch`, `atw-config` and `BuildMacUpdater`. Selected agents and
 mods must remain byte-identical after CMake; verification precedes staging.
 
 The driver fails `--build` before compiler execution if these override
