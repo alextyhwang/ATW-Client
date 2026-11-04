@@ -270,6 +270,7 @@ def create_app(package, output, updater_helper=None, version="1.0.0", channel="s
     resources = contents / "Resources"
     (contents / "MacOS").mkdir(parents=True)
     resources.mkdir()
+    shutil.copy2(Path(__file__).resolve().parents[1] / "res/branding/atw.icns", resources / "atw.icns")
     shutil.copytree(package, resources / "package", symlinks=True)
     if inventory(resources / "package") != entries:
         raise ValueError("Copied app payload differs from its input")
@@ -290,6 +291,7 @@ def create_app(package, output, updater_helper=None, version="1.0.0", channel="s
             "CFBundleDisplayName": "ATW Client",
             "CFBundleIdentifier": "com.alextyhwang.atw-client",
             "CFBundleExecutable": "ATW Client",
+            "CFBundleIconFile": "atw.icns",
             "CFBundlePackageType": "APPL",
             "CFBundleShortVersionString": version,
             "CFBundleVersion": version,

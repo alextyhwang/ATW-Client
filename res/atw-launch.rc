@@ -1,1 +1,3 @@
 IDI_ICON1 ICON "icon-launch.ico"
+#define ATW_DESCRIPTION "ATW Client Launcher\0"
+#include "atw-version.rc"

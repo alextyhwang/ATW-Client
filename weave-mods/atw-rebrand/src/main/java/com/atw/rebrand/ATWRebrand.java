@@ -14,7 +14,7 @@ implements ModInitializer {
     public static final String LOG_PREFIX = "[ATW Rebrand] ";
 
     public void preInit(java.lang.instrument.Instrumentation instrumentation) {
-        ATWRebrand.log("Loading ATW menu logo proof of concept.");
+        ATWRebrand.log("Using packaged ATW Client branding.");
     }
 
     public static void log(String message) {

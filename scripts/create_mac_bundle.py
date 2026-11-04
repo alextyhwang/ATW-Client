@@ -18,7 +18,7 @@ import sys
 
 GAME = "data/home/AppData/Roaming/.minecraft/lunarclient"
 REQUIRED = (
-    "atw-launch.app", "atw-config.app", "runtime/java", "runtime/weave",
+    "atw-launch.app", "atw-config.app", "runtime/java", "runtime/weave", "branding",
     "agents (DON'T TOUCH)", "libs (DON'T TOUCH)",
     "data/home/.lunarclient", "data/home/.weave", GAME,
     "data/home/Library/Application Support/minecraft/libraries",

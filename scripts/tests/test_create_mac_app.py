@@ -56,6 +56,9 @@ class MacAppTests(unittest.TestCase):
     def test_copy_preserves_seed_and_content_identity(self):
         before = app.inventory(self.package)
         first = app.create_app(self.package, self.root / "first.app")
+        info = plistlib.loads((self.root / "first.app/Contents/Info.plist").read_bytes())
+        self.assertEqual("atw.icns", info["CFBundleIconFile"])
+        self.assertTrue((self.root / "first.app/Contents/Resources/atw.icns").read_bytes().startswith(b"icns"))
         second = app.create_app(self.package, self.root / "second.app")
         self.assertEqual(first, second)
         self.assertEqual(before, app.inventory(self.package))

@@ -1,6 +1,7 @@
 <RCC>
     <qresource prefix="/">
         <file>res/fonts/Minecraft.ttf</file>
+        <file>res/branding/atw.svg</file>
         <file>res/icons/cog.svg</file>
         <file>res/icons/config.svg</file>
         <file>res/icons/launch.svg</file>

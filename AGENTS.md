@@ -8,6 +8,7 @@ This is the independent ATW-Client-Performance checkout. Target Lunar Minecraft
 - Build or change the launcher: [README.md](README.md).
 - Change the launcher/config UI: [docs/UI_DESIGN.md](docs/UI_DESIGN.md)
   (Figma reference, tokens, components); styles live in `src/gui/style/atwtheme.*`.
+- Change logos, app/process icons or game branding: [docs/BRANDING.md](docs/BRANDING.md).
 - Change launcher settings: `src/config/config.h` and `src/config/config.cpp`
   own schema, defaults and persistence. Add/load/save fields there and consume
   them in launch/UI code. Use `atw-config` for settings; `--gui` and
@@ -48,8 +49,8 @@ For packaging/auth changes, run the two regression scripts documented in
 
 Build, package and update details: [docs/MAC_TEST_READY.md](docs/MAC_TEST_READY.md),
 [docs/MAC_TEST_BUILD.md](docs/MAC_TEST_BUILD.md) and
-[docs/MAC_UPDATES.md](docs/MAC_UPDATES.md). Mac work happens on branch
-`mac/m2-pro-weave-1.8.9`; sign-in secrets live in the Keychain, never in files.
+[docs/MAC_UPDATES.md](docs/MAC_UPDATES.md). Shared Windows/Mac source is on
+`main`; sign-in secrets live in the Keychain, never in files.
 Automatic updates come from the native Swift helper `scripts/mac/ATWUpdate.swift`
 reading the PRIVATE release feed (tags `mac-stable-vX.Y.Z`); the Qt
 `INCLUDE_UPDATER` checker stays OFF. Its tests run only on a Mac:

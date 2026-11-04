@@ -8,7 +8,8 @@ weave {
         name = "ATW Rebrand"
         modId = "atw-rebrand"
         entryPoints = listOf("com.atw.rebrand.ATWRebrand")
-        hooks = listOf("com.atw.rebrand.hook.MenuLogoOverlayHook")
+        // Append only logo resources after user packs; no per-frame hook.
+        hooks = listOf("com.atw.rebrand.hook.BrandingResourcesHook")
         mcpMappings()
     }
     version("1.8.9")
@@ -38,6 +39,7 @@ tasks.jar {
     exclude("atw-levelhead-local.properties")
 }
 tasks.processResources {
+    from("../../res/lunar-overrides") { into("atw-branding") }
     // The plugin generates the authoritative 1.4.1 metadata from weave.configure.
     exclude("weave.mod.json", "atw-levelhead-local.properties")
 }

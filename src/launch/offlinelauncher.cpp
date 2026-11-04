@@ -667,6 +667,9 @@ bool OfflineLauncher::launch() {
          << "-Dnet.java.games.input.librarypath=" + nativesFile
          << "-Djna.nosys=true" << "-Djna.nounpack=true";
     args << QStringLiteral("-Datw.input.macContinuity=%1").arg(config.macInputContinuity ? "true" : "false");
+    args << QStringLiteral("-Xdock:name=ATW Client")
+         << "-Xdock:icon=" + FS::combinePaths(FS::getPackageRoot(), QStringLiteral("branding/atw.png"))
+         << QStringLiteral("-Dapple.awt.application.name=ATW Client");
 #endif
 
     if (config.useWeave) {
@@ -865,6 +868,14 @@ QString OfflineLauncher::resolveJavaExecutable(const QString& path) {
     QFileInfo info(trimmedPath);
     if (info.isFile()) {
 #ifdef Q_OS_WIN
+        // Only redirect our bundled runtime; custom external Java stays user-owned.
+        const QString bundledBin = QDir(FS::combinePaths(FS::getPackageRoot(), QStringLiteral("runtime/java/bin"))).canonicalPath();
+        const QString branded = FS::combinePaths(info.absolutePath(), QStringLiteral("ATW Client.exe"));
+        if (!bundledBin.isEmpty() && info.canonicalPath() == bundledBin
+                && (info.fileName().compare(QStringLiteral("java.exe"), Qt::CaseInsensitive) == 0
+                    || info.fileName().compare(QStringLiteral("javaw.exe"), Qt::CaseInsensitive) == 0)
+                && QFileInfo(branded).isExecutable())
+            return branded;
         if (info.fileName().compare(QStringLiteral("java.exe"), Qt::CaseInsensitive) == 0) {
             QString javaw = FS::combinePaths(info.absolutePath(), QStringLiteral("javaw.exe"));
             if (QFileInfo(javaw).isExecutable())
@@ -888,7 +899,9 @@ QString OfflineLauncher::resolveJavaExecutable(const QString& path) {
 
     for (const QString& candidateDir : candidateDirs) {
 #ifdef Q_OS_WIN
-        const QStringList executableNames{QStringLiteral("javaw.exe"), QStringLiteral("java.exe")};
+        QStringList executableNames{QStringLiteral("javaw.exe"), QStringLiteral("java.exe")};
+        if (QDir(candidateDir).canonicalPath() == QDir(FS::combinePaths(FS::getPackageRoot(), QStringLiteral("runtime/java/bin"))).canonicalPath())
+            executableNames.prepend(QStringLiteral("ATW Client.exe"));
 #else
         const QStringList executableNames{QStringLiteral("java")};
 #endif

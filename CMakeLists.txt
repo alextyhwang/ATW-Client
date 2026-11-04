@@ -55,6 +55,7 @@ endif()
 
 find_program(JAR_EXECUTABLE jar)
 find_package(ZLIB REQUIRED)
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
 # ---------------------------- Get current version and tag --------------------------------
 set(LCQT_VERSION 0.0.1)
@@ -242,6 +243,14 @@ if(APPLE)
         MACOSX_BUNDLE_SHORT_VERSION_STRING "${LCQT_VERSION}")
     set_target_properties(atw-config PROPERTIES MACOSX_BUNDLE_GUI_IDENTIFIER "local.atw.config")
     set_target_properties(atw-launch PROPERTIES MACOSX_BUNDLE_GUI_IDENTIFIER "local.atw.launch")
+    set(ATW_MAC_ICON "${CMAKE_SOURCE_DIR}/res/branding/atw.icns")
+    set_source_files_properties("${ATW_MAC_ICON}" PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+    foreach(ATW_TARGET atw-config atw-launch)
+        target_sources(${ATW_TARGET} PRIVATE "${ATW_MAC_ICON}")
+        set_target_properties(${ATW_TARGET} PROPERTIES MACOSX_BUNDLE_ICON_FILE "atw.icns")
+    endforeach()
+    set_target_properties(atw-config PROPERTIES MACOSX_BUNDLE_BUNDLE_NAME "ATW Client Settings")
+    set_target_properties(atw-launch PROPERTIES MACOSX_BUNDLE_BUNDLE_NAME "ATW Client")
 endif()
 
 if(ATW_BUILD_LEGACY_TARGETS)
@@ -332,6 +341,12 @@ add_custom_target(CopyBundledJavaRuntime ALL
     COMMENT "Copying bundled Java runtime"
     VERBATIM
 )
+if(WIN32)
+    add_custom_command(TARGET CopyBundledJavaRuntime POST_BUILD
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/brand_windows_java.py"
+            "${BUNDLED_JAVA_RUNTIME_DEST}/bin"
+        VERBATIM)
+endif()
 
 foreach(ATW_TARGET IN LISTS ATW_TARGETS)
     add_dependencies(${ATW_TARGET} CopyBundledJavaRuntime)
@@ -355,13 +370,10 @@ if(EXISTS "${BUNDLED_LUNAR_DATA_SOURCE}")
         VERBATIM
     )
 
-    if(JAR_EXECUTABLE)
+    if(Python3_Interpreter_FOUND)
         add_custom_target(PatchBundledLunarBranding ALL
-            COMMAND ${CMAKE_COMMAND}
-                -DJAR_EXECUTABLE=${JAR_EXECUTABLE}
-                -DLUNAR_JAR=${ATW_LUNAR_BRANDING_TARGET_JAR}
-                -DOVERLAY_DIR=${ATW_LUNAR_BRANDING_OVERLAY}
-                -P "${CMAKE_CURRENT_LIST_DIR}/cmake/patch_lunar_branding.cmake"
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_LIST_DIR}/scripts/patch_lunar_branding.py"
+                "${BUNDLED_LUNAR_DATA_DEST}/offline/multiver"
             DEPENDS CopyBundledLunarData
             COMMENT "Patching bundled Lunar branding resources"
             VERBATIM
@@ -370,7 +382,7 @@ if(EXISTS "${BUNDLED_LUNAR_DATA_SOURCE}")
         add_dependencies(atw-config PatchBundledLunarBranding)
         add_dependencies(atw-launch PatchBundledLunarBranding)
     else()
-        message(WARNING "jar executable not found; bundled Lunar branding resources will not be patched")
+        message(FATAL_ERROR "Python3 is required to prepare ATW branding")
     endif()
 
     add_dependencies(atw-config CopyBundledLunarData)
@@ -420,6 +432,9 @@ configure_file(${CMAKE_SOURCE_DIR}/res/icon.ico ${CMAKE_BINARY_DIR}/icon.ico COP
 configure_file(${CMAKE_SOURCE_DIR}/res/icon-config.ico ${CMAKE_BINARY_DIR}/icon-config.ico COPYONLY)
 configure_file(${CMAKE_SOURCE_DIR}/res/icon-launch.ico ${CMAKE_BINARY_DIR}/icon-launch.ico COPYONLY)
 configure_file(${CMAKE_SOURCE_DIR}/res/minecraft.ico ${CMAKE_BINARY_DIR}/minecraft.ico COPYONLY)
+file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/branding")
+configure_file(${CMAKE_SOURCE_DIR}/res/branding/atw.png ${CMAKE_BINARY_DIR}/branding/atw.png COPYONLY)
+configure_file(${CMAKE_SOURCE_DIR}/res/branding/atw.icns ${CMAKE_BINARY_DIR}/branding/atw.icns COPYONLY)
 
 # Embed icon in Windows executable (for taskbar pin, Explorer, etc.)
 if(WIN32)

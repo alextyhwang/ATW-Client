@@ -1,4 +1,5 @@
 #include <QApplication>
+#include <QIcon>
 #include <QCommandLineParser>
 #include <QDir>
 #include <QFile>
@@ -225,6 +226,8 @@ int runAccountStoreSelfTest() {
 int main(int argc, char *argv[]) {
     QApplication app(argc, argv);
     QApplication::setApplicationName(QStringLiteral("atw-launch"));
+    QApplication::setApplicationDisplayName(QStringLiteral("ATW Client"));
+    QApplication::setWindowIcon(QIcon(QStringLiteral(":/res/branding/atw.svg")));
     app.setStyle(QStringLiteral("Fusion"));
     // The sign-in dialog closes before the game starts; keep running for it.
     app.setQuitOnLastWindowClosed(false);

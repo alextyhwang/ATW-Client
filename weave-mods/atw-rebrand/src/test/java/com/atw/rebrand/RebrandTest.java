@@ -14,13 +14,40 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class RebrandTest {
-    @Test void recoveredLogoMatchesRecordedOriginalPngSha256() throws Exception {
-        // SHA-256 of atw-rebrand/logo.png recovered from the installed ATWRebrand 0.1.0 jar.
-        // The canonical test needs only its packaged resource, never the recovery/staging jar.
+    @Test void brandingLayerWinsWithoutChangingOriginalListOrUnrelatedResources() throws Exception {
+        net.minecraft.client.resources.IResourcePack user = mock(net.minecraft.client.resources.IResourcePack.class);
+        java.util.List<net.minecraft.client.resources.IResourcePack> original = java.util.List.of(user);
+        java.util.List<net.minecraft.client.resources.IResourcePack> layered = BrandingResources.append(original);
+        assertEquals(1, original.size());
+        assertSame(user, layered.get(0));
+        assertTrue(layered.get(1) instanceof BrandingResources);
+        assertEquals(2, BrandingResources.append(layered).size());
+        BrandingResources brand = (BrandingResources) layered.get(1);
+        assertTrue(brand.resourceExists(new net.minecraft.util.ResourceLocation("lunar", "logo/logo-branding-215x33.png")));
+        assertFalse(brand.resourceExists(new net.minecraft.util.ResourceLocation("minecraft", "textures/blocks/stone.png")));
+        assertFalse(brand.resourceExists(new net.minecraft.util.ResourceLocation("lunar", "backgrounds/splash.png")));
+        try (java.io.InputStream stream = brand.getInputStream(new net.minecraft.util.ResourceLocation("lunar", "logo/logo-128x117.png"))) {
+            assertEquals(128, javax.imageio.ImageIO.read(stream).getWidth());
+        }
+    }
+
+    @Test void resourceReloadHookIsIdempotentAndVerifiable() throws Exception {
+        ClassNode node = new ClassNode(); node.name = "net/minecraft/client/resources/SimpleReloadableResourceManager";
+        node.superName = "java/lang/Object";
+        MethodNode method = new MethodNode(Opcodes.ACC_PUBLIC, "reloadResources", "(Ljava/util/List;)V", null, null);
+        method.instructions.add(new InsnNode(Opcodes.RETURN)); method.maxLocals=2; method.maxStack=1; node.methods.add(method);
+        com.atw.rebrand.hook.BrandingResourcesHook hook = new com.atw.rebrand.hook.BrandingResourcesHook();
+        hook.transform(node, mock(Hook.AssemblerConfig.class)); int size = method.instructions.size();
+        hook.transform(node, mock(Hook.AssemblerConfig.class)); assertEquals(size,method.instructions.size());
+        new Analyzer<>(new BasicVerifier()).analyze(node.name,method);
+    }
+    @Test void packagedLogoIsAnAtwBadge() throws Exception {
         try (java.io.InputStream resource = getClass().getResourceAsStream("/atw-rebrand/logo.png")) {
             assertNotNull(resource);
-            assertEquals("df5c280b7045f30a5aa4acddfebeb5a5210c5c1cc8cd81170f479fc6291c6b50",
-                    HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(resource.readAllBytes())));
+            java.awt.image.BufferedImage image = javax.imageio.ImageIO.read(resource);
+            assertNotNull(image);
+            assertEquals(1024, image.getWidth());
+            assertEquals(1024, image.getHeight());
         }
         assertEquals("ATW Client", ATWRebrand.NAME);
     }

@@ -71,6 +71,7 @@ function Copy-AssetIndex([string]$SourceAssets, [string]$TargetAssets, [string]$
 
 foreach ($file in @('atw-launch.exe', 'atw-config.exe', 'platforms/qwindows.dll',
     'runtime/java/bin/java.exe', 'runtime/java/bin/javaw.exe', 'runtime/java/bin/server/jvm.dll',
+    'runtime/java/bin/ATW Client.exe',
     "agents (DON'T TOUCH)/NativesPrepare",
     'runtime/weave/Weave-Loader-Agent-1.4.1.jar', 'runtime/weave/vanilla-1.8.9.jar',
     'data/home/.weave/.maven-repository/net/weavemc/api/api-v1_8/1.4.1/api-v1_8-1.4.1.jar')) {

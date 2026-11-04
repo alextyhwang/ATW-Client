@@ -66,30 +66,10 @@ QScrollArea* wrapPage(QWidget* page) {
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), config(Config::load()), offlineLauncher(config, false, NULL){
 #ifdef ATW_CONFIG_ONLY
     setWindowTitle(QStringLiteral("ATW Config v") + BuildConfig::VERSION);
-    setWindowIcon(QIcon(QStringLiteral(":/res/icons/config.svg")));
+    setWindowIcon(QIcon(QStringLiteral(":/res/branding/atw.svg")));
 #else
     setWindowTitle(QStringLiteral("ATW Client v") + BuildConfig::VERSION);
-    static QString icon = FS::combinePaths(QCoreApplication::applicationDirPath(), QStringLiteral("icon.ico"));
-    if (QFile::exists(icon))
-        setWindowIcon(QIcon(icon));
-    else {
-        QString lcloc =
-#if defined(Q_OS_WIN)
-            QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation) + QStringLiteral("/Programs/lunarclient/Lunar Client.exe");
-#elif defined(Q_OS_DARWIN)
-            QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/lunarclient/Lunar Client"; //Need location
-#else
-            QDir::homePath() + "/lunarclient/Lunar Client"; // Need location
-#endif
-        QFileInfo fin(lcloc);
-        QFileSystemModel* model = new QFileSystemModel;
-        QIcon ic = model->fileIcon(model->index(fin.filePath()));
-        QPixmap pixmap = ic.pixmap(ic.actualSize(QSize(1028, 1028)));
-        setWindowIcon(pixmap);
-        QFile file(icon);
-        file.open(QIODevice::WriteOnly);
-        pixmap.save(&file, "ICO");
-    }
+    setWindowIcon(QIcon(QStringLiteral(":/res/branding/atw.svg")));
 #endif
     // Frameless, rounded Figma frame. The minimize hint keeps taskbar/Dock
     // minimizing working without drawing a native frame.

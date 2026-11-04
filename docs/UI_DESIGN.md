@@ -1,5 +1,7 @@
 # Launcher and config UI design
 
+Application icons and in-game identity follow [BRANDING.md](BRANDING.md).
+
 The Qt window shared by `atw-config` (and the legacy `atw-client`) and the
 sign-in dialog that `atw-launch` also shows follow the Figma reference
 **Frame 21, node 2427:642** (Game tab; Frame 23, node 2427:888, is a variant).
