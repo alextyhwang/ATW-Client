@@ -36,6 +36,9 @@ Build and package on a Mac:
 
 ```sh
 cmake --build /path/to/build --target BuildMacUpdater
+# Remove files the game never opens (docs/PACKAGE_SIZE.md); run on a copy.
+python3 -B scripts/slim_mac_package.py --package /path/to/prepared-credential-free-package \
+  --share-qt-frameworks
 python3 -B scripts/create_mac_app.py \
   --package /path/to/prepared-credential-free-package \
   --output '/path/to/release/ATW Client.app' \

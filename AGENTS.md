@@ -29,7 +29,8 @@ Canonical executables are `atw-launch` and `atw-config`. Settings live in
 `AppData/Roaming/.minecraft/lunarclient` beneath that home. Keep path changes
 aligned with CMake and `scripts/create_portable_bundle.ps1`.
 The bundle leaves out files the game never opens (unused Lunar mods, the Lunar
-launcher web UI, GraalVM tooling, music); [docs/PACKAGE_SIZE.md](docs/PACKAGE_SIZE.md)
+launcher web UI, GraalVM tooling, music); on the Mac, `scripts/slim_mac_package.py`
+applies the same rules before `create_mac_app.py`. [docs/PACKAGE_SIZE.md](docs/PACKAGE_SIZE.md)
 gives the evidence. Before shipping something it excludes, or excluding something
 new, repeat its access-time trace and check the launcher code that loads it.
 

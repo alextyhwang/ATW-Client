@@ -17,11 +17,11 @@ sign-in, download and diagnostics.
   home network on 2026-11-02. This is a second-PC result, not a different-network test.
 - Windows download cut from 618 MB to 326 MB by leaving out files the game never
   opens (traced 2026-11-03). The slim package joined Bedwars Practice signed in.
-  See [the size audit](docs/PACKAGE_SIZE.md).
+  See [the size audit](docs/PACKAGE_SIZE.md). The Mac app followed in 1.0.4
+  (archive about 875 MB down to 364 MB; package 1,179 MB down to 558 MB).
 
 ## Open
 
-- Apply the same size rules to the Mac package and ship it through the Mac updater.
 - Hypixel joins on BLACKBOX still return “Disconnected” in both tested profiles,
   despite successful status and account readiness checks. No local Hypixel FPS
   baseline exists; success on Alayna's PC does not resolve this.

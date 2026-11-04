@@ -2,8 +2,8 @@
 
 On 2026-11-03 the Windows download shrank from 618 MB to 326 MB (47%). Extracted,
 it went from 925 MB to 543 MB and from 8,937 files to 1,660.
-`scripts/create_portable_bundle.ps1` applies every rule below. The cuts are on
-the Windows package only; the Mac package is not changed yet (see the end).
+`scripts/create_portable_bundle.ps1` applies every rule below. The Mac app
+(1.0.4) uses the same rules plus Mac-only ones; see the end.
 
 ## How usage was measured
 
@@ -69,9 +69,33 @@ the remote key press did not reach it.
 
 ## Mac package
 
-The Mac app (875 MB archive) is built by `scripts/prepare_mac_test.py`. That
-script copies the whole Lunar folder, every asset and the libraries, so it
-holds the same unused Lunar mods, data, web UI, natives folders and music. The
-same rules apply, because `Utils::getClassPath` is shared code. The Mac was
-offline in Tailscale during this audit, so its build and auto-update release
-are still to do.
+The Mac seed package went from 1,179 MB to 558 MB in 1.0.4, and the archive
+from about 875 MB to 364 MB. `scripts/slim_mac_package.py` applies the rules to
+a copy of a prepared, credential-free package before `create_mac_app.py`.
+`scripts/tests/test_slim_mac_package.py` covers it.
+
+The same Mac trace method (`touch -a`, then one run) confirmed the shared
+rules and found Mac-only waste:
+
+| Item | Size | Why it is unused |
+|---|---|---|
+| Same Lunar mods, data, mixins, web UI, natives folders, old agents and music as Windows | ~280 MB | Same shared launcher code. The natives folders are even Windows DLLs |
+| Temurin JDK files: `jmods`, `lib/src.zip`, `lib/ct.sym`, `include`, `man` | 133 MB | The game runs on the runtime and never compiles or links |
+| `AppData/Roaming/.minecraft/assets` (a full second copy) | 115 MB | Assets come from the game folder (`lunarclient/assets`) |
+| `AppData/Roaming/.minecraft/libraries`, `versions`, `lunarclient/versions` | 39 MB | On macOS, Genesis reads libraries and the version jar only from `data/home/Library/Application Support/minecraft` |
+| `atw-config.app/Contents/Frameworks` | 69 MB | Byte-identical to `atw-launch.app`'s copy. It is now a relative link (`--share-qt-frameworks`), and Settings loads Qt through it |
+
+The slim package's Settings app ran and loaded every Qt framework through the
+link. An offline game start reached Lunar's started state, and the only
+missing-file warnings were for music. (Both 1.0.3 and 1.0.4 also log the same
+274 Lunar cosmetic-model warnings; they come from Lunar, not from this change.)
+The app bootstrap stages a fresh copy of each new seed and carries over only user
+state, so an update also removes the unused files from an installed Mac.
+
+1.0.4 is published as `mac-stable-v1.0.4` (private, not marked Latest). The M2 Pro
+updated itself from 1.0.3 through the private feed on 2026-11-04. Its installed
+package went from 1,193 MB to 558 MB, the 59 tracked settings, mod and
+resource-pack files were unchanged, and no downloaded archive was left in
+`updates/`. The archive was uploaded from Blackbox in 50 MB pieces with
+per-piece checksums. GitHub timed out a direct upload from the Mac because its
+upstream connection kept stalling.
