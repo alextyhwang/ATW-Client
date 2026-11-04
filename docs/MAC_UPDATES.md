@@ -47,8 +47,10 @@ python3 -B scripts/create_mac_update_manifest.py \
   --output /path/to/release/atw-mac-stable.json --channel stable
 ```
 
-Generate metadata after final signing/notarization and ZIP creation. The metadata
-includes the exact archive byte count, SHA-256 and package inventory ID. The
+Generate metadata after final signing/notarization and ZIP creation. Transfer the
+Mac-built archive unchanged when uploading from another OS: repacking can change
+path/permission metadata even when ZIP CRC checks pass. The manifest includes the
+exact archive byte count, SHA-256 and package inventory ID. The
 native helper verifies the downloaded bytes against authenticated GitHub metadata,
 checks ZIP paths and relative links before extraction, validates the bundle
 identifier/version/channel and arm64 helper, and hashes the packaged inventory
@@ -146,6 +148,10 @@ The updater does not read or copy the user's original global Minecraft/Lunar hom
 Opening the outer app shows Settings. `--launch` starts Minecraft directly;
 diagnostic flags pass to `atw-launch`. No update is applied from the running UI.
 
+Allow at least 5 GB of free disk space for the archive and temporary app/package
+copies. A full disk can make staging fail while the previous installed app stays
+usable; remove temporary build artifacts before retrying.
+
 ## Isolated verification
 
 ```sh
@@ -185,6 +191,23 @@ downloaded ZIP in `updates/` after an update because `exit()` skips its cleanup.
 The source now removes it, with a regression test; delete leftover `*.zip` in
 `~/Library/Application Support/ATW Client/updates/` after updating from these
 builds.
+
+The ATW branding follow-up is `mac-stable-v1.0.3`; see
+[BRANDING.md](BRANDING.md) for the live game and state-retention checks. The
+1.0.2-to-1.0.3 release keeps identical native launcher/helper bytes and changes
+only presentation payloads. The newer helper includes the ZIP cleanup fix.
+Ad-hoc identity changes required reauthorizing the game launcher and provisioning
+the updater's own Keychain item again; a normal open then checked the feed
+successfully. After the live feed later returned `offline`, the exact published
+1.0.3 archive was applied from the Mac's verified local release copy with the
+same atomic `Installation.apply` routine under the installation lock, then
+resumed through the normal bootstrap in the desktop session. Bootstrap exited
+successfully; the wrapper reports 1.0.3 and its package seed matches the manifest.
+The player-state ledger retained settings, resource packs and other mods; only
+Rebrand and normal account/waypoint JSON rewrites changed. Transaction scratch
+and downloaded ZIPs are gone. The screen was locked for this final install,
+so no post-install GUI relaunch is claimed. The earlier automatic update remains
+the live network qualification. This does not establish Developer ID signing.
 
 ## Test notes
 

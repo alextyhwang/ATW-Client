@@ -71,6 +71,22 @@ account import. `waypoints.json` was rewritten by the running game.
 
 The follow-up 1.0.3 payload also brands the pause-menu `ATW Options...` label
 and translation strings. It was checked in the real Mac client before upload.
-Both native launchers and the updater build; the 26 native updater/packaging/
-branding tests passed before the additional cross-platform translation tests.
+Both native launchers and the updater build; all 28 native updater/packaging/
+branding tests pass, including the additional translation tests.
 The new launcher/helper bytes are identical across 1.0.2 and 1.0.3.
+
+The final native 1.0.3 archive was applied with the same verified atomic
+installer after a later feed check was offline. The resume bootstrap exited
+successfully, the installed wrapper reports 1.0.3, and the package seed ID matches
+the published manifest. The 59-file ledger retained all settings, resource packs
+and other mods; only Rebrand and the game-rewritten account/waypoint JSON changed.
+No transaction scratch or downloaded ZIP remains. The screen was locked for
+this final installation, so a post-install GUI relaunch was not repeated.
+
+The rebuilt updater needed its private-feed Keychain item re-provisioned under
+its new executable identity. The previously authorized GitHub credential was
+re-imported in the desktop session; a subsequent normal open reported `current`
+for 1.0.2 without a password prompt. Minecraft's separate Keychain item was
+unchanged. The final retry remained offline; the earlier 1.0.1-to-1.0.2 update
+is the live automatic-update qualification. Developer ID signing remains the
+route to a stable publisher identity.

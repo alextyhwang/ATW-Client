@@ -1,9 +1,16 @@
 # ATW Client for Apple Silicon
 
-The Mac branch packages the current ATW launcher, pinned Lunar Minecraft 1.8.9,
+The shared `main` branch packages the current ATW launcher, pinned Lunar Minecraft 1.8.9,
 Weave 1.4.1, selected deployed mods, settings, resource packs, Java 17 and Qt.
 It uses OpenGL. Experimental `macInputContinuity` stays disabled. The target is
 Apple Silicon on macOS 14.4 or newer; this is not an Intel Mac package.
+
+The current download is [Mac stable 1.0.3](https://github.com/alextyhwang/ATW-Client-Portable/releases/tag/mac-stable-v1.0.3)
+(private GitHub access required). It includes the Figma UI, shared ATW app/game
+branding and native automatic updater. See [branding qualification](BRANDING.md).
+The file/hash comparisons below describe the initial port; branding subsequently
+changes presentation entries in the client, legacy/modern and translation jars,
+plus the Rebrand mod, while retaining the pinned runtime and player configuration.
 
 ## Current qualification
 
@@ -35,10 +42,11 @@ The replacement archive additionally includes all 74 pinned Genesis dependency
 JARs under its Mac private home, avoiding the first-run downloads observed in
 that upgrade test. Its full ZIP CRC check and 13 Mac packaging tests pass.
 The initial `mac-v20261103` download lacks these repairs; use the
-[Mac repair prerelease](https://github.com/alextyhwang/ATW-Client-Portable/releases/tag/mac-v20261103-r3).
+[current Mac stable release](https://github.com/alextyhwang/ATW-Client-Portable/releases/tag/mac-stable-v1.0.3).
 The repair build also reached a Hypixel Bed Wars lobby (`/l bw`). The redesigned
-UI and the native updater are installed on the M2 Pro (outer app 1.0.1, updated
-from 1.0.0 through the private feed; see [MAC_UPDATES.md](MAC_UPDATES.md)). Visual/input
+UI and native updater are installed on the M2 Pro (outer app 1.0.3). The final
+native archive was applied with the verified installer after a later feed check
+was offline; see [MAC_UPDATES.md](MAC_UPDATES.md). Visual/input
 parity and competitive FPS remain unqualified.
 
 The initial November 3 release omitted Qt's TLS backend, preventing Microsoft
