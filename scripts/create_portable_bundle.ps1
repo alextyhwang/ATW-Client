@@ -2,7 +2,10 @@ param(
     [string]$BuildDir = (Join-Path $PSScriptRoot '..\build'),
     [string]$OutputDir = (Join-Path $PSScriptRoot ('..\releases\ATW-Portable-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))),
     [string]$SettingsPath,
-    [switch]$Zip
+    [switch]$Zip,
+    # Background music is 83 MB of already-compressed audio. The shipped options set the
+    # music volume to 0, and Minecraft never opens a sound file at volume 0.
+    [switch]$IncludeMusic
 )
 # Builds a slim, account-free Minecraft 1.8.9 package from the build's private home.
 # Only 1.8.9 files, configs, settings, Weave mods and enabled resource packs are copied.
@@ -57,12 +60,14 @@ function Copy-Optional([string]$Source, [string]$Destination) {
     elseif (Test-Path -LiteralPath $Source -PathType Container) { Copy-Tree $Source $Destination }
 }
 # Copy an asset index and only the objects it references.
-function Copy-AssetIndex([string]$SourceAssets, [string]$TargetAssets, [string]$IndexName) {
+function Copy-AssetIndex([string]$SourceAssets, [string]$TargetAssets, [string]$IndexName, [string[]]$SkipPrefixes = @()) {
     $index = Join-Path $SourceAssets "indexes/$IndexName.json"
     if (!(Test-Path -LiteralPath $index)) { throw "Missing asset index: $index" }
     Copy-File $index (Join-Path $TargetAssets "indexes/$IndexName.json")
     $objects = (Get-Content -LiteralPath $index -Raw | ConvertFrom-Json).objects.PSObject.Properties
     foreach ($object in $objects) {
+        $name = $object.Name
+        if ($SkipPrefixes | Where-Object { $name.StartsWith($_) }) { continue }
         $hash = $object.Value.hash
         $relative = 'objects/' + $hash.Substring(0, 2) + '/' + $hash
         Copy-File (Join-Path $SourceAssets $relative) (Join-Path $TargetAssets $relative)
@@ -85,28 +90,55 @@ Write-Host 'Copying launcher, Qt and agents'
 foreach ($file in @('atw-launch.exe', 'atw-config.exe', 'minecraft.ico', 'icon-config.ico', 'icon-launch.ico')) {
     Copy-File (Join-Path $BuildDir $file) (Join-Path $OutputDir $file)
 }
-Get-ChildItem -LiteralPath $BuildDir -Filter '*.dll' -File | Copy-Item -Destination $OutputDir
+# Size audit (docs/PACKAGE_SIZE.md): neither app uses OpenGL or Qt Quick, so the software
+# OpenGL and D3D shader-compiler DLLs are never loaded, and no OpenSSL DLLs are shipped
+# for the OpenSSL TLS plugin to use; Windows' own TLS (schannel) handles sign-in.
+$unusedQt = @('opengl32sw.dll', 'D3Dcompiler_47.dll')
+Get-ChildItem -LiteralPath $BuildDir -Filter '*.dll' -File | Where-Object { $unusedQt -notcontains $_.Name } |
+    Copy-Item -Destination $OutputDir
 foreach ($dir in @('platforms', 'styles', 'imageformats', 'iconengines', 'tls',
-    "agents (DON'T TOUCH)", "libs (DON'T TOUCH)", 'runtime/weave', 'data/home/.weave/mods', 'data/home/.weave/.maven-repository')) {
-    Copy-Tree (Join-Path $BuildDir $dir) (Join-Path $OutputDir $dir)
+    "libs (DON'T TOUCH)", 'runtime/weave', 'data/home/.weave/mods', 'data/home/.weave/.maven-repository')) {
+    Copy-Tree (Join-Path $BuildDir $dir) (Join-Path $OutputDir $dir) -ExcludeFiles @('qopensslbackend.dll')
+}
+# atw-launch passes only these built-in agents (src/launch/offlinelauncher.cpp); the
+# older ATW agents in the build folder were replaced by Weave mods and are never loaded.
+foreach ($agent in @('NativesPrepare', 'ATWLunarEnable')) {
+    Copy-File (Join-Path $BuildDir "agents (DON'T TOUCH)/$agent") (Join-Path $OutputDir "agents (DON'T TOUCH)/$agent")
 }
 
 Write-Host 'Copying Java runtime (without JDK-only files)'
-Copy-Tree (Join-Path $BuildDir 'runtime/java') (Join-Path $OutputDir 'runtime/java') `
-    -ExcludeFiles @('src.zip', 'ct.sym', 'license-information-user-manual.zip') -ExcludeDirs @('jmods', 'include', 'languages', 'tools')
+# GraalVM's updater (lib/installer), native-image (lib/svm), Truffle/polyglot language
+# jars and lib/graalvm are never opened by the game; the Graal JIT is bin/jvmcicompiler.dll.
+$javaSource = Join-Path $BuildDir 'runtime/java'
+Copy-Tree $javaSource (Join-Path $OutputDir 'runtime/java') `
+    -ExcludeFiles @('src.zip', 'ct.sym', 'license-information-user-manual.zip', 'jvm.lib') `
+    -ExcludeDirs (@('jmods', 'include', 'languages', 'tools') +
+        @(@('installer', 'truffle', 'svm', 'graalvm') | ForEach-Object { Join-Path $javaSource "lib/$_" }))
 
 Write-Host 'Copying Lunar 1.8.9 runtime'
 $sourceMultiver = Join-Path $sourceLunar 'offline/multiver'
 $targetMultiver = Join-Path $targetLunar 'offline/multiver'
 New-Item -ItemType Directory -Path $targetMultiver -Force | Out-Null
 # Version-specific Lunar files carry a v1_<minor> tag; keep 1.8 and the shared ones.
+# atw-launch always uses the OptiFine loader. For it, Utils::getClassPath/getExternalFiles
+# never load the Forge-only mods (NEU, SkyblockAddons, ReplayMod, Forge), the modern-
+# version jar or any *-mixins jar, and the SkyBlock data files are NEU's. A traced launch
+# and server join read none of them.
+$unusedLunar = @('NEU-*', 'SBA-*', 'ReplayMod-*', 'Forge_v*', 'forge-0.1.0-*', 'modern-0.1.0-*',
+    '*-mixins-*', 'hypixel-skyblock-*')
 Get-ChildItem -LiteralPath $sourceMultiver -File |
     Where-Object { ($_.Name -notmatch 'v1_' -or $_.Name -match 'v1_8([^0-9_]|$)') -and $_.Extension -ne '.log' } |
+    Where-Object { $name = $_.Name; !($unusedLunar | Where-Object { $name -like $_ }) } |
     Copy-Item -Destination $targetMultiver
-foreach ($dir in @('.ichor', 'client-natives-win-x86-v1_8', 'natives', 'config', 'mods', 'overrides')) {
+# Natives come from client-natives-*.zip, extracted at launch into data/natives/<hash>, so
+# Lunar's pre-extracted natives folders are unused. multiver/config holds NEU/SBA/Forge
+# settings, and .ichor holds Fabric loaders for modern versions.
+foreach ($dir in @('mods', 'overrides')) {
     Copy-Optional (Join-Path $sourceMultiver $dir) (Join-Path $targetMultiver $dir)
 }
-foreach ($dir in @('licenses', 'textures', 'ui')) {
+# .lunarclient/ui is the Lunar launcher's web UI, replaced by atw-launch; no game class
+# references it.
+foreach ($dir in @('licenses', 'textures')) {
     Copy-Optional (Join-Path $sourceLunar $dir) (Join-Path $targetLunar $dir)
 }
 
@@ -119,7 +151,9 @@ New-Item -ItemType Directory -Path $targetGame -Force | Out-Null
 foreach ($name in @('options.txt', 'optionsLC.txt', 'optionsof.txt', 'optionsshaders.txt', 'servers.dat')) {
     Copy-Optional (Join-Path $sourceGame $name) (Join-Path $targetGame $name)
 }
-foreach ($dir in @('config', 'keystrokes', 'mods', 'versions/1.8.9')) {
+# The game folder's versions/1.8.9 copy of the vanilla jar is never read; Lunar uses
+# .minecraft/versions/1.8.9 and Weave uses runtime/weave/vanilla-1.8.9.jar.
+foreach ($dir in @('config', 'keystrokes', 'mods')) {
     Copy-Optional (Join-Path $sourceGame $dir) (Join-Path $targetGame $dir)
 }
 # Minecraft 1.8 writes options.txt in the Windows ANSI code page (section signs are 0xA7).
@@ -153,17 +187,15 @@ $optionsLines = [IO.File]::ReadAllLines($optionsPath, $ansi) | ForEach-Object {
 
 Write-Host 'Copying Minecraft 1.8 assets and 1.8.9 version files'
 # Lunar reads assets from the game directory; a launch test read none from the parent copy.
-Copy-AssetIndex (Join-Path $sourceGame 'assets') (Join-Path $targetGame 'assets') '1.8'
+$skipAssets = if ($IncludeMusic) { @() } else { @('minecraft/sounds/music/') }
+Copy-AssetIndex (Join-Path $sourceGame 'assets') (Join-Path $targetGame 'assets') '1.8' $skipAssets
 Copy-Tree (Join-Path $sourceMinecraft 'versions/1.8.9') (Join-Path $targetMinecraft 'versions/1.8.9')
 $versionJson = Get-Content -LiteralPath (Join-Path $sourceMinecraft 'versions/1.8.9/1.8.9.json') -Raw | ConvertFrom-Json
+# Native-classifier jars (LWJGL, JInput, Twitch) are not copied: the game's DLLs come from
+# Lunar's natives zip, and a traced launch read none of these jars.
 foreach ($library in $versionJson.libraries) {
     $artifacts = @()
     if ($library.downloads.artifact) { $artifacts += $library.downloads.artifact.path }
-    if ($library.natives.windows -and $library.downloads.classifiers) {
-        $classifier = $library.natives.windows -replace '\$\{arch\}', '64'
-        $native = $library.downloads.classifiers.$classifier
-        if ($native) { $artifacts += $native.path }
-    }
     foreach ($path in $artifacts) {
         $source = Join-Path $sourceMinecraft "libraries/$path"
         if (Test-Path -LiteralPath $source) { Copy-File $source (Join-Path $targetMinecraft "libraries/$path") }

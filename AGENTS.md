@@ -28,6 +28,10 @@ Canonical executables are `atw-launch` and `atw-config`. Settings live in
 `.lunarclient`, Weave `.weave/mods`, and Minecraft
 `AppData/Roaming/.minecraft/lunarclient` beneath that home. Keep path changes
 aligned with CMake and `scripts/create_portable_bundle.ps1`.
+The bundle leaves out files the game never opens (unused Lunar mods, the Lunar
+launcher web UI, GraalVM tooling, music); [docs/PACKAGE_SIZE.md](docs/PACKAGE_SIZE.md)
+gives the evidence. Before shipping something it excludes, or excluding something
+new, repeat its access-time trace and check the launcher code that loads it.
 
 Use `cmake-build-weave141` as the build tree; `build/` is the existing private
 runtime package. Preserve its settings and account when refreshing binaries.

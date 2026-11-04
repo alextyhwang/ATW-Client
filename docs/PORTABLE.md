@@ -79,6 +79,13 @@ versions or any account file (`accounts.json`, `launcher_lc_msa.json`,
 `launcher_accounts.json`, `account.dat`). The build fails if one is present or
 if a path is too long for Windows' built-in extraction.
 
+Files the game never opens are left out as well: Lunar's Forge-only mods (NEU,
+SkyblockAddons, ReplayMod, Forge) and their data, modern-version and mixin jars,
+the Lunar launcher's web UI, pre-extracted natives, GraalVM's updater, native-image
+and Truffle files, Qt's software-OpenGL DLLs, old ATW agents and background music.
+[PACKAGE_SIZE.md](PACKAGE_SIZE.md) has the evidence for each and the 618 MB to
+326 MB result. Add `-IncludeMusic` to the build to ship music again.
+
 The package includes Lunar Client and Minecraft files and must only be shared
 through the private release repository.
 

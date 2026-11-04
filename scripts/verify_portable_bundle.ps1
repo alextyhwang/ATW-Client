@@ -56,9 +56,12 @@ foreach ($root in $assetRoots) {
     $index = Join-Path $root 'indexes/1.8.json'
     if (!(Test-Path -LiteralPath $index)) { continue }
     $objects = (Get-Content -LiteralPath $index -Raw | ConvertFrom-Json).objects
+    # Background music is left out on purpose (create_portable_bundle.ps1 -IncludeMusic adds it);
+    # every other referenced object, including all game sounds and records, must be present.
     $missing = @($objects.PSObject.Properties | Where-Object {
         $hash = $_.Value.hash
-        !(Test-Path -LiteralPath (Join-Path $root ('objects/' + $hash.Substring(0,2) + '/' + $hash)))
+        !$_.Name.StartsWith('minecraft/sounds/music/') -and
+            !(Test-Path -LiteralPath (Join-Path $root ('objects/' + $hash.Substring(0,2) + '/' + $hash)))
     })
     if (!$missing.Count) { $validAssets = $true; break }
 }

@@ -15,9 +15,13 @@ sign-in, download and diagnostics.
   60 FPS sample. See [test details](docs/PORTABLE_SMOKE_TEST_20261102.md).
 - Alayna's Windows 11 laptop joined Hypixel with the fixed launcher on the same
   home network on 2026-11-02. This is a second-PC result, not a different-network test.
+- Windows download cut from 618 MB to 326 MB by leaving out files the game never
+  opens (traced 2026-11-03). The slim package joined Bedwars Practice signed in.
+  See [the size audit](docs/PACKAGE_SIZE.md).
 
 ## Open
 
+- Apply the same size rules to the Mac package and ship it through the Mac updater.
 - Hypixel joins on BLACKBOX still return “Disconnected” in both tested profiles,
   despite successful status and account readiness checks. No local Hypixel FPS
   baseline exists; success on Alayna's PC does not resolve this.
