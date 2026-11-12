@@ -1,0 +1,16 @@
+{
+  "source": "docs/UI_DESIGN.md (AtwTheme::Color) and res/branding/atw.svg",
+  "colors": [
+    { "token": "accent", "hex": "#4779D8", "use": "The one brand colour: logo bar, LAUNCH button, active tab, toggles, links" },
+    { "token": "text-active", "hex": "#E7EDF9", "use": "Text on accent surfaces, active tab label" },
+    { "token": "white", "hex": "#FFFFFF", "use": "ATW lettering on dark surfaces" },
+    { "token": "value", "hex": "#BFBFBF", "use": "Values and secondary text" },
+    { "token": "frame", "hex": "#252526", "use": "Window header, cards, icon inner face, banner background" },
+    { "token": "body", "hex": "#343435", "use": "Window body, inputs, icon tile rim" },
+    { "token": "edge", "hex": "#2C2C2C", "use": "Hard 3D edge under raised surfaces" },
+    { "token": "shadow", "hex": "#202021", "use": "Icon tile base / drop edge" },
+    { "token": "label", "hex": "#929292", "use": "Field labels" },
+    { "token": "input-text", "hex": "#6C6C6C", "use": "Placeholder and input text" },
+    { "token": "tab-inactive", "hex": "#5C5C60", "use": "Inactive tab labels" }
+  ]
+}

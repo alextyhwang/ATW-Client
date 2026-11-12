@@ -8,6 +8,7 @@ you need their evidence; this directory is not a collection to load wholesale.
 | Build and repository layout | [Root README](../README.md) |
 | Launcher/config UI and Figma reference | [UI design](UI_DESIGN.md) |
 | App icons, process names and game logos | [Branding](BRANDING.md) |
+| Brand kit: logo files, colours, type, screenshots | [Brand kit](../branding/README.md) |
 | Authentication, portable releases, server checks | [Portable guide](PORTABLE.md) |
 | What the download contains and why | [Package size audit](PACKAGE_SIZE.md) |
 | Remaining portability work | [Portability status](../PORTABILITY_TODO.md) |
