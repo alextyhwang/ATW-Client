@@ -9,6 +9,8 @@ This is the independent ATW-Client-Performance checkout. Target Lunar Minecraft
 - Change the launcher/config UI: [docs/UI_DESIGN.md](docs/UI_DESIGN.md)
   (Figma reference, tokens, components); styles live in `src/gui/style/atwtheme.*`.
 - Change logos, app/process icons or game branding: [docs/BRANDING.md](docs/BRANDING.md).
+- Design new branding, banners or screenshots: [branding/README.md](branding/README.md)
+  (brand kit and proposal workflow).
 - Change launcher settings: `src/config/config.h` and `src/config/config.cpp`
   own schema, defaults and persistence. Add/load/save fields there and consume
   them in launch/UI code. Use `atw-config` for settings; `--gui` and

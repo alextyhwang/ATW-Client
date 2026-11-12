@@ -3,7 +3,9 @@
 `res/branding` holds the shared badge, using the Figma ATW lettering, dark
 raised tile and blue accent. `python scripts/generate_branding.py` regenerates
 the PNG, SVG, ICNS, ICOs and Lunar texture overlays. This developer command
-requires Pillow and ImageMagick; consumers need neither.
+requires Pillow and ImageMagick; consumers need neither. The designer-facing
+brand kit (logo exports, palette, banners, screenshots) is in
+[branding/](../branding/README.md).
 
 The launcher build requires Python 3 and Pillow. CMake runs
 `scripts/patch_lunar_branding.py` on its private `offline/multiver` directory,
