@@ -167,6 +167,11 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), config(Config::lo
     handoffTimer = new QTimer(this);
     handoffTimer->setInterval(800);
     connect(handoffTimer, &QTimer::timeout, this, &MainWindow::pollHandoff);
+    // First run: show the ATW window, then sign in over it. LAUNCH starts
+    // the game once the account and master password are saved.
+    QTimer::singleShot(400, this, [this]() {
+        static_cast<GamePage*>(pages.first())->promptSignInIfSignedOut();
+    });
 #endif
 
     load();

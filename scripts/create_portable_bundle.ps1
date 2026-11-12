@@ -5,7 +5,10 @@ param(
     [switch]$Zip,
     # Background music is 83 MB of already-compressed audio. The shipped options set the
     # music volume to 0, and Minecraft never opens a sound file at volume 0.
-    [switch]$IncludeMusic
+    [switch]$IncludeMusic,
+    # Ship config/account.dat so a fresh download unlocks with the master password.
+    # Only a version 2 (master-password) file is accepted; it holds no readable token.
+    [switch]$IncludeEncryptedAccount
 )
 # Builds a slim, account-free Minecraft 1.8.9 package from the build's private home.
 # Only 1.8.9 files, configs, settings, Weave mods and enabled resource packs are copied.
@@ -234,6 +237,16 @@ Copy-Item -LiteralPath (Join-Path $PSScriptRoot '../docs/PORTABLE.md') -Destinat
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'verify_portable_bundle.ps1') -Destination $OutputDir
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'diagnose_server_reachability.ps1') -Destination $OutputDir
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'portable/Start ATW.cmd') -Destination $OutputDir
+if ($IncludeEncryptedAccount) {
+    $accountSource = Join-Path $BuildDir 'config/account.dat'
+    if (!(Test-Path -LiteralPath $accountSource -PathType Leaf)) { throw "No saved sign-in to include: $accountSource" }
+    $account = Get-Content -LiteralPath $accountSource -Raw | ConvertFrom-Json
+    if ($account.version -ne 2 -or !$account.tag -or !$account.salt) {
+        throw 'config/account.dat is not master-password protected. Start ATW once and set the master password first.'
+    }
+    Copy-Item -LiteralPath $accountSource -Destination (Join-Path $OutputDir 'config/account.dat')
+    Write-Host "Included the master-password sign-in for $($account.name)."
+}
 & (Join-Path $PSScriptRoot 'verify_portable_bundle.ps1') -BundleDir $OutputDir -Release
 
 $files = Get-ChildItem -LiteralPath $OutputDir -Recurse -File -Force

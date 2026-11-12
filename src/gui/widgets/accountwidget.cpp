@@ -39,8 +39,9 @@ void AccountWidget::refresh() {
 #ifdef Q_OS_MACOS
     if (accountProcess)
         return;
-    // Only atw-launch touches the Mac Keychain. Reading config status must
-    // never produce a security prompt from a second executable identity.
+#endif
+    // Only the readable metadata in account.dat is used here: the session is
+    // encrypted with the master password, which only atw-launch asks for.
     QString accountName;
     signedIn = AccountStore::savedAccountMetadata(&accountName)
         || AccountStore::hasUsableLunarAccount(&accountName);
@@ -49,36 +50,12 @@ void AccountWidget::refresh() {
     button->setText(signedIn ? QStringLiteral("Sign out") : QStringLiteral("Sign in"));
     button->setEnabled(true);
     button->setToolTip(QString());
-#else
-    AccountStore::SavedAccount saved;
-    QString lunarName;
-    QString error;
-    storageUnavailable = false;
-    button->setToolTip(QString());
-    switch (AccountStore::load(saved, &error)) {
-    case AccountStore::LoadStatus::Ok:
-        signedIn = true;
-        statusLabel->setText(saved.account.name);
-        break;
-    case AccountStore::LoadStatus::Unreadable:
-        // Reading settings must never remove an existing sign-in.
-        signedIn = AccountStore::hasUsableLunarAccount(&lunarName);
-        statusLabel->setText(signedIn ? lunarName : QStringLiteral("Saved sign-in needs attention"));
-        break;
-    case AccountStore::LoadStatus::Unavailable:
-        signedIn = false;
-        storageUnavailable = true;
-        statusLabel->setText(QStringLiteral("Saved sign-in unavailable"));
-        button->setToolTip(error);
-        break;
-    case AccountStore::LoadStatus::Missing:
-        signedIn = AccountStore::hasUsableLunarAccount(&lunarName);
-        statusLabel->setText(signedIn ? lunarName : QStringLiteral("Not signed in"));
-        break;
-    }
-    button->setText(storageUnavailable ? QStringLiteral("Try again")
-                    : signedIn ? QStringLiteral("Sign out") : QStringLiteral("Sign in"));
-#endif
+}
+
+void AccountWidget::promptSignInIfSignedOut() {
+    refresh();
+    if (!signedIn && !storageUnavailable)
+        onButtonClicked();
 }
 
 void AccountWidget::onButtonClicked() {
@@ -122,12 +99,14 @@ void AccountWidget::launchAccountAction() {
         process->deleteLater();
         refresh();
     });
+    const bool signingOut = signedIn;
     connect(process, qOverload<int, QProcess::ExitStatus>(&QProcess::finished), this,
-            [this, process](int code, QProcess::ExitStatus status) {
+            [this, process, signingOut](int code, QProcess::ExitStatus status) {
         accountProcess = nullptr;
         process->deleteLater();
         refresh();
-        if (status != QProcess::NormalExit || code != 0)
+        // Closing the sign-in window is a normal choice, not a failure.
+        if (status != QProcess::NormalExit || (code != 0 && signingOut))
             QMessageBox::warning(window(), QStringLiteral("ATW Client"),
                 QStringLiteral("The account action did not finish. Your saved sign-in has been preserved; try again."));
     });

@@ -13,9 +13,19 @@ no administrator rights are needed.
    "Windows protected your PC", choose **More info** > **Run anyway**. This is
    SmartScreen, not an administrator prompt. The first run clears Windows'
    "downloaded from the internet" mark on the package files.
-4. Sign in with Microsoft: enter the code shown at microsoft.com/link with the
-   account that owns Minecraft. The game then starts. Later launches reuse the
-   saved sign-in.
+4. The ATW window opens. If no sign-in is saved, sign in with Microsoft: enter
+   the code shown at microsoft.com/link with the account that owns Minecraft,
+   then choose a master password. Press **LAUNCH** and type the master password
+   to start the game. (`Start ATW.cmd --offline` still goes straight to the game.)
+
+The saved sign-in (`config/account.dat`) is encrypted with your master password,
+not with this PC, so a package that includes it works on any PC once you type
+the password. It holds Microsoft's refresh token, which ATW uses to get a fresh
+Minecraft token (valid about 24 hours) at each start. The refresh token stays
+valid for roughly 90 days after its last use; after that, or if Microsoft revokes
+it, ATW asks you to sign in again. Forgot the password? Choose **Forgot? Sign in
+again**. A release can carry the encrypted file with
+`create_portable_bundle.ps1 -IncludeEncryptedAccount`.
 
 A relocated Java binary may trigger Windows Firewall's network-access prompt.
 The local multiplayer test passed after cancelling it; no firewall rule change
@@ -24,10 +34,9 @@ was needed for that test. See [current coverage](../PORTABILITY_TODO.md).
 Quit with Lunar's in-game close button. Open `atw-config.exe` to change settings.
 
 **On a shared PC:** open `atw-config.exe` and choose **Sign out** before you leave,
-then delete the folder and the zip. The saved sign-in (`config/account.dat`) is
-encrypted with Windows for the current Windows user, so it cannot be used from
-another account or PC, but anyone using the same Windows login could use it
-until you sign out.
+then delete the folder and the zip. Without the master password nobody can use
+`config/account.dat`, but `accounts.json` keeps the current Minecraft token
+(about 24 hours) until you sign out.
 
 Launcher settings live in `config/settings.json`. Game files, Lunar settings,
 Weave mods and caches live in `data/home`; temporary files live in `data/tmp`;

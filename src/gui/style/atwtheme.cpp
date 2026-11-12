@@ -543,6 +543,18 @@ QLabel#code {
     font-weight: bold;
     padding: 10px 0px 8px 0px;
 }
+QLineEdit {
+    color: #E7EDF9;
+    background-color: #343435;
+    border: none;
+    border-bottom: 3px solid #2C2C2C;
+    padding: 6px 8px;
+    font-size: 16px;
+    selection-background-color: #4779D8;
+}
+QLineEdit:focus {
+    border-bottom-color: #4779D8;
+}
 QPushButton {
     background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #3D3D42, stop:1 #343435);
     background-clip: padding;

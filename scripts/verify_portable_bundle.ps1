@@ -79,7 +79,18 @@ function Find-AccountFiles([string]$Root) {
 }
 if ($Release) {
     # A shareable package must not contain any login token.
-    $secrets = @(Find-AccountFiles $BundleDir)
+    # The one exception is config/account.dat in version 2 form: it is encrypted
+    # with the owner's master password and unusable without it.
+    $secrets = @(Find-AccountFiles $BundleDir | Where-Object {
+        $isPasswordFile = $false
+        if ($_.FullName -eq (Join-Path $BundleDir 'configccount.dat')) {
+            try {
+                $data = Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json
+                $isPasswordFile = $data.version -eq 2 -and $data.tag -and $data.salt -and !$data.refreshToken
+            } catch { $isPasswordFile = $false }
+        }
+        -not $isPasswordFile
+    })
     if ($secrets.Count) { throw "Package contains account files: $($secrets.FullName -join ', ')" }
 }
 & (Join-Path $BundleDir 'runtime/java/bin/java.exe') -version

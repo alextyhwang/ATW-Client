@@ -28,6 +28,8 @@ public:
 
     // Re-reads the saved sign-in (for example after atw-launch signed in).
     void refreshAccount();
+    // First run: asks for a Microsoft sign-in when no account is saved.
+    void promptSignInIfSignedOut();
 
 private:
     QSlider* memorySlider;

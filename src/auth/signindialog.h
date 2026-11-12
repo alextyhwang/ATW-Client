@@ -21,6 +21,8 @@ public:
 
     bool offlineChosen() const { return offline; }
     QString accountName() const { return signedInName; }
+    // The master password chosen for the saved sign-in (empty if offline).
+    QString password() const { return masterPassword; }
 
 private:
     void start();
@@ -36,6 +38,7 @@ private:
     QString userCode;
     QUrl verificationUri;
     QString signedInName;
+    QString masterPassword;
     bool offline = false;
 };
 

@@ -2,6 +2,7 @@
 #include <QIcon>
 #include <QCommandLineParser>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
@@ -14,6 +15,7 @@
 #include "auth/accountstore.h"
 #include "auth/msaauth.h"
 #include "auth/onlinereadiness.h"
+#include "auth/passworddialog.h"
 #include "auth/signindialog.h"
 #include "config/config.h"
 #include "launch/offlinelauncher.h"
@@ -61,8 +63,13 @@ int importAccount(QApplication& app, const QString& path) {
         }
         AccountStore::SavedAccount saved{
             QUuid::createUuid().toString(QUuid::WithoutBraces), clientId, account};
+        PasswordDialog passwordDialog(PasswordDialog::Mode::Create, account.name);
+        if (passwordDialog.exec() != QDialog::Accepted) {
+            AccountStore::log(QStringLiteral("Account import: no master password chosen; existing sign-in preserved."));
+            return app.exit(1);
+        }
         QString error;
-        if (!AccountStore::save(saved, &error)) {
+        if (!AccountStore::save(saved, passwordDialog.password(), &error)) {
             AccountStore::log(QStringLiteral("Account import could not save sign-in: ") + error);
             return app.exit(1);
         }
@@ -74,6 +81,48 @@ int importAccount(QApplication& app, const QString& path) {
         app.exit(1);
     });
     QTimer::singleShot(0, &auth, [&]() { auth.refresh(refresh); });
+    return QApplication::exec();
+}
+
+// Sign-in without a desktop session (for example over SSH or from an agent):
+// prints the Microsoft device code, then saves the sign-in under the master
+// password read from a private file. Prints no tokens or passwords.
+int headlessSignIn(QApplication& app, const QString& clientId, const QString& passwordFile) {
+    QTextStream out(stdout);
+    QFile input(passwordFile);
+    if (!input.open(QIODevice::ReadOnly) || input.size() > 4096) {
+        out << "FAIL cannot read the master password file." << Qt::endl;
+        return 1;
+    }
+    QString password = QString::fromUtf8(input.readAll());
+    input.close();
+    while (password.endsWith(QLatin1Char('\n')) || password.endsWith(QLatin1Char('\r')))
+        password.chop(1);
+    if (password.size() < 4) {
+        out << "FAIL the master password must have at least 4 characters." << Qt::endl;
+        return 1;
+    }
+    MsaAuth auth(clientId);
+    QObject::connect(&auth, &MsaAuth::deviceCode, &app, [&](const QString& code, const QUrl& uri) {
+        out << "CODE " << code << " at " << uri.toString() << Qt::endl;
+    });
+    QObject::connect(&auth, &MsaAuth::succeeded, &app, [&](const MinecraftAccount& account) {
+        AccountStore::SavedAccount saved{QUuid::createUuid().toString(QUuid::WithoutBraces),
+                                         MsaAuth::resolveClientId(clientId), account};
+        QString error;
+        if (!AccountStore::save(saved, password, &error)) {
+            out << "FAIL signed in, but could not save: " << error << Qt::endl;
+            return app.exit(1);
+        }
+        AccountStore::log(QStringLiteral("Signed in as %1 (headless) with a master password.").arg(account.name));
+        out << "PASS signed in as " << account.name << "; saved under the master password." << Qt::endl;
+        app.exit(0);
+    });
+    QObject::connect(&auth, &MsaAuth::failed, &app, [&](const QString& message, bool) {
+        out << "FAIL " << message << Qt::endl;
+        app.exit(1);
+    });
+    QTimer::singleShot(0, &auth, [&]() { auth.startDeviceLogin(); });
     return QApplication::exec();
 }
 
@@ -167,13 +216,26 @@ int runAccountStoreSelfTest() {
     AccountStore::SavedAccount saved{QStringLiteral("11111111-2222-3333-4444-555555555555"), QString(), {}};
     saved.account = {QStringLiteral("AtwTest"), QStringLiteral("0123456789abcdef0123456789abcdef"),
                      QStringLiteral("2535400000000000"), fakeToken, expiry, QStringLiteral("fake-refresh-token")};
-    check(AccountStore::save(saved), "save account");
+    const QString password = QStringLiteral("correct horse battery");
+    QElapsedTimer timer;
+    timer.start();
+    check(AccountStore::save(saved, password), "save account with master password");
+    out << "INFO key derivation and save took " << timer.elapsed() << " ms" << Qt::endl;
+    check(!AccountStore::save(saved, QString()), "save refuses an empty master password");
+    check(AccountStore::isPasswordProtected(), "account.dat is a master-password file");
 
     AccountStore::SavedAccount loaded;
-    check(AccountStore::load(loaded) == AccountStore::LoadStatus::Ok
+    check(AccountStore::load(loaded) == AccountStore::LoadStatus::Locked && loaded.account.name == "AtwTest",
+          "load without password is Locked but shows the name");
+    check(AccountStore::load(loaded, QStringLiteral("wrong password")) == AccountStore::LoadStatus::WrongPassword,
+          "wrong master password is rejected");
+    check(AccountStore::load(loaded, password) == AccountStore::LoadStatus::Ok
               && loaded.account.refreshToken == saved.account.refreshToken
               && loaded.account.uuid == saved.account.uuid && loaded.localId == saved.localId,
-          "load account back");
+          "master password unlocks the account");
+    QString metadataName;
+    check(AccountStore::savedAccountMetadata(&metadataName) && metadataName == "AtwTest",
+          "settings window reads the name without the password");
     const QByteArray sealed = readAll(AccountStore::accountFilePath());
     check(!sealed.contains("fake-refresh-token") && !sealed.contains(fakeToken.toLatin1()),
           "account.dat holds no plain tokens");
@@ -199,20 +261,17 @@ int runAccountStoreSelfTest() {
         check(QFile::copy(lunarPath, fixture), "copy accounts.json fixture");
     }
 
+    // A damaged ciphertext fails the authentication tag instead of decrypting.
     QJsonObject damaged = QJsonDocument::fromJson(sealed).object();
-    damaged["secret"] = QString::fromLatin1(QByteArray("not dpapi data").toBase64());
+    QByteArray secret = QByteArray::fromBase64(damaged["secret"].toString().toLatin1());
+    secret[secret.size() / 2] = char(secret[secret.size() / 2] ^ 0x5A);
+    damaged["secret"] = QString::fromLatin1(secret.toBase64());
     QFile file(AccountStore::accountFilePath());
     if (file.open(QIODevice::WriteOnly))
         file.write(QJsonDocument(damaged).toJson());
     file.close();
-    check(AccountStore::load(loaded) == AccountStore::LoadStatus::Unreadable, "foreign account.dat is unreadable");
+    check(AccountStore::load(loaded, password) != AccountStore::LoadStatus::Ok, "damaged account.dat is rejected");
 
-    // Restore the reference before sign-out: Mac Keychain v2 deletes only the
-    // item named by this package's account.dat, not a global test secret.
-    const bool restored = file.open(QIODevice::WriteOnly)
-        && file.write(sealed) == sealed.size() && file.flush();
-    file.close();
-    check(restored, "restore account reference before sign-out");
     AccountStore::signOut();
     check(!QFile::exists(AccountStore::accountFilePath()), "sign-out deletes account.dat");
     const QByteArray cleared = readAll(lunarPath);
@@ -277,12 +336,19 @@ int main(int argc, char *argv[]) {
     parser.addOption(signInOption);
     parser.addOption(signOutOption);
 
+    QCommandLineOption headlessSignInOption("headless-sign-in",
+        QStringLiteral("Sign in with a printed device code; save under the master password in this file"),
+        QStringLiteral("password-file"));
+    parser.addOption(headlessSignInOption);
+
     parser.process(app);
 
     if (parser.isSet(importOption))
         return importAccount(app, parser.value(importOption));
 
     Config config = Config::load();
+    if (parser.isSet(headlessSignInOption))
+        return headlessSignIn(app, config.msaClientId, parser.value(headlessSignInOption));
     if (parser.isSet(signOutOption)) {
         AccountStore::signOut();
         return QFile::exists(AccountStore::accountFilePath()) ? 1 : 0;

@@ -15,6 +15,7 @@
 
 #include "auth/accountstore.h"
 #include "auth/msaauth.h"
+#include "auth/passworddialog.h"
 #include "gui/style/atwtheme.h"
 
 SignInDialog::SignInDialog(const QString& clientId, bool allowOffline, const QString& notice, QWidget* parent)
@@ -108,16 +109,24 @@ void SignInDialog::start() {
 }
 
 void SignInDialog::onSucceeded(const MinecraftAccount& account) {
-    // Save atomically before replacing the previous sign-in. A locked
-    // Keychain or failed file write must never sign out the existing account.
+    // The session is saved only under a master password the user chooses now.
+    PasswordDialog passwordDialog(PasswordDialog::Mode::Create, account.name, QString(), false, this);
+    if (passwordDialog.exec() != QDialog::Accepted) {
+        AccountStore::log(QStringLiteral("Sign-in not saved: no master password was chosen."));
+        return onFailed(QStringLiteral("Signed in, but not saved: ATW needs a master password to keep the sign-in. "
+                                       "Try again and choose one."));
+    }
+    // Save atomically before replacing the previous sign-in. A failed file
+    // write must never sign out the existing account.
     AccountStore::SavedAccount saved{QUuid::createUuid().toString(QUuid::WithoutBraces), clientId, account};
     QString error;
-    if (!AccountStore::save(saved, &error)) {
+    if (!AccountStore::save(saved, passwordDialog.password(), &error)) {
         AccountStore::log(QStringLiteral("Sign-in could not be saved: ") + error);
         return onFailed(QStringLiteral("Signed in, but the account could not be saved. ") + error);
     }
     AccountStore::log(QStringLiteral("Signed in as %1.").arg(account.name));
     signedInName = account.name;
+    masterPassword = passwordDialog.password();
     accept();
 }
 

@@ -5,11 +5,15 @@
 #include "accountstore.h"
 
 #include <QCoreApplication>
+#include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QMessageAuthenticationCode>
+#include <QPasswordDigestor>
+#include <QRandomGenerator>
 #include <QSaveFile>
 #include <QStandardPaths>
 #include <QUuid>
@@ -33,8 +37,73 @@
 #endif
 
 namespace {
-const int accountFileVersion = 1;
+const int legacyFileVersion = 1;   // DPAPI blob or Mac Keychain reference
+const int passwordFileVersion = 2; // master-password encryption
 const char entropy[] = "ATW Client Microsoft account v1";
+
+// Version 2 encryption, built only from Qt so Windows and Mac match:
+// PBKDF2-HMAC-SHA256 turns the master password into a 32-byte encryption key
+// and a 32-byte MAC key; HMAC-SHA256 in counter mode is the keystream; an
+// HMAC-SHA256 tag over the header and ciphertext rejects wrong passwords and
+// damaged files before anything is decrypted.
+const char kdfName[] = "pbkdf2-sha256";
+const int kdfIterations = 200000;
+const int saltBytes = 16;
+const int nonceBytes = 16;
+
+QByteArray randomBytes(int count) {
+    QByteArray bytes(count, Qt::Uninitialized);
+    for (int i = 0; i < count; ++i)
+        bytes[i] = char(QRandomGenerator::system()->bounded(256));
+    return bytes;
+}
+
+struct PasswordKeys {
+    QByteArray encryption;
+    QByteArray authentication;
+};
+
+PasswordKeys deriveKeys(const QString& password, const QByteArray& salt, int iterations) {
+    const QByteArray key = QPasswordDigestor::deriveKeyPbkdf2(
+        QCryptographicHash::Sha256, password.toUtf8(), salt, iterations, 64);
+    return {key.left(32), key.mid(32)};
+}
+
+QByteArray applyKeystream(const QByteArray& data, const QByteArray& key, const QByteArray& nonce) {
+    QByteArray output(data.size(), Qt::Uninitialized);
+    QMessageAuthenticationCode mac(QCryptographicHash::Sha256, key);
+    quint32 counter = 0;
+    for (int offset = 0; offset < data.size(); offset += 32, ++counter) {
+        const char counterBytes[4] = {char(counter >> 24), char(counter >> 16), char(counter >> 8), char(counter)};
+        mac.reset();
+        mac.addData(nonce);
+        mac.addData(counterBytes, 4);
+        const QByteArray block = mac.result();
+        for (int i = 0; i < 32 && offset + i < data.size(); ++i)
+            output[offset + i] = char(data[offset + i] ^ block[i]);
+    }
+    return output;
+}
+
+QByteArray authenticationTag(const QByteArray& key, const QString& localId, const QByteArray& salt,
+                             const QByteArray& nonce, const QByteArray& ciphertext) {
+    QMessageAuthenticationCode mac(QCryptographicHash::Sha256, key);
+    mac.addData(QByteArray("atw-account-v2"));
+    mac.addData(localId.toUtf8());
+    mac.addData(salt);
+    mac.addData(nonce);
+    mac.addData(ciphertext);
+    return mac.result();
+}
+
+bool sameBytes(const QByteArray& a, const QByteArray& b) {
+    if (a.size() != b.size())
+        return false;
+    char difference = 0;
+    for (int i = 0; i < a.size(); ++i)
+        difference |= char(a[i] ^ b[i]);
+    return difference == 0;
+}
 
 QJsonObject readJsonFile(const QString& path) {
     QFile file(path);
@@ -109,7 +178,7 @@ QString AccountStore::accountFilePath() {
 #endif
 }
 
-AccountStore::LoadStatus AccountStore::load(SavedAccount& saved, QString* error) {
+AccountStore::LoadStatus AccountStore::load(SavedAccount& saved, const QString& password, QString* error) {
     saved = {};
     if (error)
         error->clear();
@@ -123,18 +192,41 @@ AccountStore::LoadStatus AccountStore::load(SavedAccount& saved, QString* error)
         return LoadStatus::Unavailable;
     }
     const QJsonObject file = QJsonDocument::fromJson(input.readAll()).object();
-    bool unavailable = false;
-    const QByteArray plain = unprotect(QByteArray::fromBase64(file["secret"].toString().toLatin1()), error, &unavailable);
-    if (unavailable)
-        return LoadStatus::Unavailable;
-    const QJsonObject secret = QJsonDocument::fromJson(plain).object();
-    if (file["version"].toInt() != accountFileVersion || secret.isEmpty())
-        return LoadStatus::Unreadable;
-
     saved.localId = file["localId"].toString();
     saved.clientId = file["clientId"].toString();
     MinecraftAccount& account = saved.account;
     account.name = file["name"].toString();
+
+    QByteArray plain;
+    const int version = file["version"].toInt();
+    if (version == passwordFileVersion) {
+        if (password.isEmpty())
+            return LoadStatus::Locked;
+        const QByteArray salt = QByteArray::fromBase64(file["salt"].toString().toLatin1());
+        const QByteArray nonce = QByteArray::fromBase64(file["nonce"].toString().toLatin1());
+        const QByteArray ciphertext = QByteArray::fromBase64(file["secret"].toString().toLatin1());
+        const QByteArray tag = QByteArray::fromBase64(file["tag"].toString().toLatin1());
+        const int iterations = file["iterations"].toInt();
+        if (file["kdf"].toString() != QLatin1String(kdfName) || iterations < 10000 || iterations > 10000000
+                || salt.size() != saltBytes || nonce.size() != nonceBytes || ciphertext.isEmpty()
+                || tag.size() != 32 || saved.localId.isEmpty())
+            return LoadStatus::Unreadable;
+        const PasswordKeys keys = deriveKeys(password, salt, iterations);
+        if (!sameBytes(tag, authenticationTag(keys.authentication, saved.localId, salt, nonce, ciphertext)))
+            return LoadStatus::WrongPassword;
+        plain = applyKeystream(ciphertext, keys.encryption, nonce);
+    } else if (version == legacyFileVersion) {
+        bool unavailable = false;
+        plain = unprotect(QByteArray::fromBase64(file["secret"].toString().toLatin1()), error, &unavailable);
+        if (unavailable)
+            return LoadStatus::Unavailable;
+    } else {
+        return LoadStatus::Unreadable;
+    }
+
+    const QJsonObject secret = QJsonDocument::fromJson(plain).object();
+    if (secret.isEmpty())
+        return LoadStatus::Unreadable;
     account.uuid = secret["uuid"].toString();
     account.xuid = secret["xuid"].toString();
     account.accessToken = secret["accessToken"].toString();
@@ -145,26 +237,41 @@ AccountStore::LoadStatus AccountStore::load(SavedAccount& saved, QString* error)
     return LoadStatus::Ok;
 }
 
-#ifdef Q_OS_MACOS
+bool AccountStore::isPasswordProtected() {
+    return readJsonFile(accountFilePath())["version"].toInt() == passwordFileVersion;
+}
+
 bool AccountStore::savedAccountMetadata(QString* name) {
     if (name)
         name->clear();
     const QJsonObject file = readJsonFile(accountFilePath());
-    const QByteArray marker = QByteArray::fromBase64(file["secret"].toString().toLatin1());
-    if (file["version"].toInt() != accountFileVersion || file["localId"].toString().isEmpty()
-            || file["name"].toString().isEmpty()
-            || (marker != QByteArray(legacyKeychainMarker) && uniqueKeychainAccount(marker).isEmpty()))
+    const int version = file["version"].toInt();
+    if ((version != legacyFileVersion && version != passwordFileVersion)
+            || file["localId"].toString().isEmpty() || file["name"].toString().isEmpty())
         return false;
+#ifdef Q_OS_MACOS
+    if (version == legacyFileVersion) {
+        const QByteArray marker = QByteArray::fromBase64(file["secret"].toString().toLatin1());
+        if (marker != QByteArray(legacyKeychainMarker) && uniqueKeychainAccount(marker).isEmpty())
+            return false;
+    }
+#endif
     if (name)
         *name = file["name"].toString();
     return true;
 }
-#endif
 
-bool AccountStore::save(const SavedAccount& saved, QString* error) {
+bool AccountStore::save(const SavedAccount& saved, const QString& password, QString* error) {
+    if (password.isEmpty()) {
+        if (error)
+            *error = QStringLiteral("A master password is required to save the sign-in.");
+        return false;
+    }
 #ifdef Q_OS_MACOS
-    const QByteArray previous = QByteArray::fromBase64(
-        readJsonFile(accountFilePath())["secret"].toString().toLatin1());
+    // A version 1 file may reference a Keychain item; drop it once replaced.
+    const QJsonObject previousFile = readJsonFile(accountFilePath());
+    const QByteArray previous = previousFile["version"].toInt() == legacyFileVersion
+        ? QByteArray::fromBase64(previousFile["secret"].toString().toLatin1()) : QByteArray();
 #endif
     const MinecraftAccount& account = saved.account;
     const QJsonObject secret{
@@ -173,32 +280,32 @@ bool AccountStore::save(const SavedAccount& saved, QString* error) {
         {"accessToken", account.accessToken},
         {"expiresAt", account.expiresAt.toUTC().toString(Qt::ISODate)},
         {"refreshToken", account.refreshToken}};
-    const QByteArray encrypted = protect(QJsonDocument(secret).toJson(QJsonDocument::Compact), error);
-    if (encrypted.isEmpty()) {
-        if (error && error->isEmpty())
-            *error = QStringLiteral("The operating system could not protect the sign-in for this user.");
-        return false;
-    }
+    const QByteArray salt = randomBytes(saltBytes);
+    const QByteArray nonce = randomBytes(nonceBytes);
+    const PasswordKeys keys = deriveKeys(password, salt, kdfIterations);
+    const QByteArray ciphertext = applyKeystream(
+        QJsonDocument(secret).toJson(QJsonDocument::Compact), keys.encryption, nonce);
 
-    // Only the profile name and IDs stay readable, so sign-out works anywhere.
+    // Only the profile name and IDs stay readable, so sign-out and the
+    // settings window work without the password.
     const QJsonObject file{
-        {"version", accountFileVersion},
+        {"version", passwordFileVersion},
         {"localId", saved.localId},
         {"clientId", saved.clientId},
         {"name", account.name},
-        {"secret", QString::fromLatin1(encrypted.toBase64())}};
-#ifdef Q_OS_MACOS
-    if (!writeJsonFile(accountFilePath(), file, error)) {
-        clearReferencedKeychainSecret(encrypted);
+        {"kdf", QString::fromLatin1(kdfName)},
+        {"iterations", kdfIterations},
+        {"salt", QString::fromLatin1(salt.toBase64())},
+        {"nonce", QString::fromLatin1(nonce.toBase64())},
+        {"secret", QString::fromLatin1(ciphertext.toBase64())},
+        {"tag", QString::fromLatin1(
+            authenticationTag(keys.authentication, saved.localId, salt, nonce, ciphertext).toBase64())}};
+    if (!writeJsonFile(accountFilePath(), file, error))
         return false;
-    }
-    // QSaveFile committed the new reference. A failed Lunar account write
-    // must not discard the secret now referenced by account.dat.
+#ifdef Q_OS_MACOS
     clearReferencedKeychainSecret(previous);
-    return writeLunarAccount(saved, error);
-#else
-    return writeJsonFile(accountFilePath(), file, error) && writeLunarAccount(saved, error);
 #endif
+    return writeLunarAccount(saved, error);
 }
 
 bool AccountStore::writeLunarAccount(const SavedAccount& saved, QString* error) {
@@ -239,8 +346,9 @@ QJsonObject AccountStore::lunarAccountEntry(const SavedAccount& saved) {
 
 void AccountStore::signOut() {
 #ifdef Q_OS_MACOS
-    const QByteArray marker = QByteArray::fromBase64(
-        readJsonFile(accountFilePath())["secret"].toString().toLatin1());
+    const QJsonObject file = readJsonFile(accountFilePath());
+    const QByteArray marker = file["version"].toInt() == legacyFileVersion
+        ? QByteArray::fromBase64(file["secret"].toString().toLatin1()) : QByteArray();
     if (QFile::remove(accountFilePath()))
         clearReferencedKeychainSecret(marker);
 #else

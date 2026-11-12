@@ -66,7 +66,14 @@ int runOnlineReadiness() {
     // 1-2. Saved sign-in.
     AccountStore::SavedAccount saved;
     QString storageError;
-    switch (AccountStore::load(saved, &storageError)) {
+    // Non-interactive check: the master password comes from the environment.
+    switch (AccountStore::load(saved, qEnvironmentVariable("ATW_MASTER_PASSWORD"), &storageError)) {
+    case AccountStore::LoadStatus::Locked:
+        report("FAIL", QStringLiteral("account.dat: protected by a master password. Set ATW_MASTER_PASSWORD to run this check."));
+        return 1;
+    case AccountStore::LoadStatus::WrongPassword:
+        report("FAIL", QStringLiteral("account.dat: ATW_MASTER_PASSWORD does not unlock it."));
+        return 1;
     case AccountStore::LoadStatus::Missing:
         report("FAIL", QStringLiteral("account.dat: missing. Start ATW and sign in with Microsoft."));
         return 1;
@@ -77,7 +84,7 @@ int runOnlineReadiness() {
         report("FAIL", QStringLiteral("account.dat: operating-system secret store is unavailable; saved account files were preserved. ") + storageError);
         return 1;
     case AccountStore::LoadStatus::Ok:
-        report("PASS", QStringLiteral("account.dat: read from the operating-system secret store for %1.").arg(saved.account.name));
+        report("PASS", QStringLiteral("account.dat: unlocked for %1.").arg(saved.account.name));
         break;
     }
     const qint64 minutesLeft = QDateTime::currentDateTimeUtc().secsTo(saved.account.expiresAt) / 60;

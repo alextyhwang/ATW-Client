@@ -1,6 +1,7 @@
 //
 // Makes sure atw-launch has a usable Minecraft account before starting the
-// game: reuses a fresh token, refreshes silently, or asks the user to sign in.
+// game: unlocks the saved sign-in with the master password, reuses a fresh
+// token or refreshes it silently, or asks the user to sign in.
 //
 
 #ifndef ATW_AUTH_ACCOUNTGATE_H
@@ -22,13 +23,17 @@ signals:
     void cancelled();
 
 private:
+    void continueWithSaved();
     void refreshSaved();
     void onRefreshFailed(const QString& message, bool needsSignIn);
     void useSaved();
+    void askPassword(const QString& notice);
+    bool upgradeLegacy();
     void askSignIn(const QString& notice);
 
     QString configuredClientId;
     AccountStore::SavedAccount saved;
+    QString password;  // master password typed during this launch only
     MsaAuth* auth = nullptr;
 };
 

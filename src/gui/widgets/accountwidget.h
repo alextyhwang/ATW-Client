@@ -18,6 +18,8 @@ public:
     explicit AccountWidget(const Config& config, QWidget* parent = nullptr);
 
     void refresh();
+    // First run: opens Microsoft sign-in when no account is saved.
+    void promptSignInIfSignedOut();
 
 private:
     void onButtonClicked();

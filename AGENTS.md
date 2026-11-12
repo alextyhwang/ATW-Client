@@ -55,7 +55,8 @@ For packaging/auth changes, run the two regression scripts documented in
 Build, package and update details: [docs/MAC_TEST_READY.md](docs/MAC_TEST_READY.md),
 [docs/MAC_TEST_BUILD.md](docs/MAC_TEST_BUILD.md) and
 [docs/MAC_UPDATES.md](docs/MAC_UPDATES.md). Shared Windows/Mac source is on
-`main`; sign-in secrets live in the Keychain, never in files.
+`main`; the sign-in is encrypted with the master password in `config/account.dat`
+(version 2). Version 1 files (DPAPI or Keychain) are read once and converted.
 Automatic updates come from the native Swift helper `scripts/mac/ATWUpdate.swift`
 reading the PRIVATE release feed (tags `mac-stable-vX.Y.Z`); the Qt
 `INCLUDE_UPDATER` checker stays OFF. Its tests run only on a Mac:

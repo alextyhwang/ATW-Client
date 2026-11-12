@@ -201,6 +201,10 @@ void GamePage::refreshAccount() {
     account->refresh();
 }
 
+void GamePage::promptSignInIfSignedOut() {
+    account->promptSignInIfSignedOut();
+}
+
 QString GamePage::description() {
     return QStringLiteral("Account, memory, Java, and game directory settings.");
 }

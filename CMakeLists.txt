@@ -126,6 +126,8 @@ set(ATW_CORE_SOURCES
 )
 
 set(ATW_AUTH_UI_SOURCES
+        src/auth/passworddialog.cpp
+        src/auth/passworddialog.h
         src/auth/signindialog.cpp
         src/auth/signindialog.h
         src/gui/style/atwtheme.cpp

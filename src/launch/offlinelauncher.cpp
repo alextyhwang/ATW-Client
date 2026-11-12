@@ -20,6 +20,8 @@
 #include <QTimer>
 #include <QRegularExpression>
 #include <QHostInfo>
+#include <QGuiApplication>
+#include <QScreen>
 
 #include <memory>
 
@@ -157,6 +159,33 @@ static void appendLauncherLog(const QString& line) {
     if (logFile.open(QIODevice::Append | QIODevice::Text)) {
         logFile.write((line + QStringLiteral("\n")).toUtf8());
     }
+}
+
+// The game opens at the saved --width/--height. A size as large as the screen
+// (for example 2560x1440 copied from the owner's monitor) opens maximized or
+// with its edges off-screen on smaller displays, so it cannot be resized.
+// Shrink it to fit inside the work area, keeping the aspect ratio.
+static QSize fitGameWindow(int width, int height) {
+    width = qMax(width, 320);
+    height = qMax(height, 240);
+    QScreen* screen = QGuiApplication::primaryScreen();
+    if (!screen)
+        return {width, height};
+    const QRect available = screen->availableGeometry();
+#ifdef Q_OS_WIN
+    // Java runs DPI-aware on Windows, so the game sizes its window in pixels.
+    const qreal scale = screen->devicePixelRatio();
+#else
+    // macOS sizes windows in points, like Qt.
+    const qreal scale = 1.0;
+#endif
+    // Leave room for the title bar, borders and the taskbar or Dock.
+    const int maxWidth = qMax(640, int((available.width() - 80) * scale));
+    const int maxHeight = qMax(480, int((available.height() - 100) * scale));
+    if (width <= maxWidth && height <= maxHeight)
+        return {width, height};
+    const qreal fit = qMin(qreal(maxWidth) / width, qreal(maxHeight) / height);
+    return {qMax(640, int(width * fit)), qMax(480, int(height * fit))};
 }
 
 // Minecraft 1.8.9 prints the full session token at startup ("Session ID is token:...").
@@ -719,6 +748,7 @@ bool OfflineLauncher::launch() {
     QString gameDir = config.useCustomMinecraftDir ? config.customMinecraftDir : FS::getMinecraftDirectory();
     sanitizeMinecraftOptions(gameDir, config.maxFps);
 
+    const QSize gameWindow = fitGameWindow(config.windowWidth, config.windowHeight);
     QStringList genesisArgs{
             "com.moonsworth.lunar.genesis.Genesis",
             "--version", Utils::getGameVersion(config.gameVersion),
@@ -727,8 +757,8 @@ bool OfflineLauncher::launch() {
             "--userProperties", userProperties,
             "--gameDir", gameDir,
             "--launcherVersion", "3.1.3",
-            "--width", QString::number(config.windowWidth),
-            "--height", QString::number(config.windowHeight),
+            "--width", QString::number(gameWindow.width()),
+            "--height", QString::number(gameWindow.height()),
             "--workingDirectory", ".",
             "--classpathDir", ".",
             "--ichorClassPath", ichorClassPath.join(QString(",")),
@@ -789,6 +819,11 @@ bool OfflineLauncher::launch() {
     }
 
     launchedPid = process->processId();
+    // Logged after start: starting the game truncates main.log.
+    if (gameWindow != QSize(config.windowWidth, config.windowHeight))
+        appendLauncherLog(QStringLiteral("[Launcher] Game window %1x%2 does not fit this screen; opened at %3x%4.")
+                              .arg(config.windowWidth).arg(config.windowHeight)
+                              .arg(gameWindow.width()).arg(gameWindow.height()));
     scheduleMinecraftWindowIcon(launchedPid);
     emit processStarted();
 
